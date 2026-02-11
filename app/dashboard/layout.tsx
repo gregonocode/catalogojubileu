@@ -1,7 +1,9 @@
+
 "use client";
 
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
+import Image from "next/image"; // ✅ add
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
@@ -15,7 +17,6 @@ import {
   LogOut,
   Tag,
 } from "lucide-react";
-import { FaMotorcycle } from "react-icons/fa";
 import toast, { Toaster } from "react-hot-toast";
 import { supabaseClient } from "@/lib/supabase/client";
 
@@ -96,8 +97,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {/* Brand */}
             <div className="flex items-center justify-between gap-3 px-4 py-4">
               <div className="flex items-center gap-3">
-                <div className="grid h-10 w-10 place-items-center rounded-2xl border border-black/10 bg-black/5">
-                  <FaMotorcycle size={18} />
+                <div className="relative grid h-10 w-10 place-items-center overflow-hidden rounded-2xl border border-black/10 bg-white">
+                  <Image
+                    src="/logo.svg"
+                    alt="Logo Pneu Forte"
+                    fill
+                    className="object-contain p-1"
+                    priority
+                  />
                 </div>
 
                 {!collapsed && (
@@ -108,17 +115,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 )}
               </div>
 
-              <button
-                type="button"
-                onClick={() => setCollapsed((v) => !v)}
-                className="grid h-9 w-9 place-items-center rounded-xl border border-black/10 bg-white hover:bg-black/5"
-                aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
-                title={collapsed ? "Expandir" : "Recolher"}
-              >
-                {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
-              </button>
-            </div>
-
+             </div>
             {/* Nav */}
             <nav className="flex-1 overflow-auto px-3 pb-4">
               <div className="space-y-4">
