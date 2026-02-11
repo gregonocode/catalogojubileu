@@ -162,10 +162,17 @@ export default function CategoriasPage() {
       setNomeNovo("");
       setSlugNovo("");
       toast.success("Categoria criada!");
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      const msg = String(err?.message || "").toLowerCase();
-      if (msg.includes("duplicate") || String(err?.code || "") === "23505") {
+      const msg =
+        typeof err === "object" && err !== null && "message" in err
+          ? String(err.message).toLowerCase()
+          : "";
+      const code =
+        typeof err === "object" && err !== null && "code" in err
+          ? String(err.code)
+          : "";
+      if (msg.includes("duplicate") || code === "23505") {
         toast.error("Esse slug já está em uso. Escolha outro.");
       } else {
         toast.error("Não foi possível criar a categoria.");
@@ -205,10 +212,17 @@ export default function CategoriasPage() {
 
       toast.success("Categoria atualizada!");
       cancelEdit();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      const msg = String(err?.message || "").toLowerCase();
-      if (msg.includes("duplicate") || String(err?.code || "") === "23505") {
+      const msg =
+        typeof err === "object" && err !== null && "message" in err
+          ? String(err.message).toLowerCase()
+          : "";
+      const code =
+        typeof err === "object" && err !== null && "code" in err
+          ? String(err.code)
+          : "";
+      if (msg.includes("duplicate") || code === "23505") {
         toast.error("Esse slug já está em uso. Escolha outro.");
       } else {
         toast.error("Não foi possível salvar.");

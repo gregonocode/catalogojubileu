@@ -159,10 +159,17 @@ export default function ConfiguracaoPage() {
 
       toast.success("Empresa criada com sucesso!");
       setForm((prev) => ({ ...prev, id: data.id, slug, whatsapp, nome }));
-    } catch (err: any) {
+    } catch (err: unknown) {
       // slug unique -> erro comum
-      if (String(err?.message || "").toLowerCase().includes("duplicate")
-          || String(err?.code || "") === "23505") {
+      const errorMessage =
+        typeof err === "object" && err !== null && "message" in err
+          ? String(err.message).toLowerCase()
+          : "";
+      const errorCode =
+        typeof err === "object" && err !== null && "code" in err
+          ? String(err.code)
+          : "";
+      if (errorMessage.includes("duplicate") || errorCode === "23505") {
         toast.error("Esse slug já está em uso. Escolha outro.");
       } else {
         toast.error("Não foi possível salvar. Tente novamente.");

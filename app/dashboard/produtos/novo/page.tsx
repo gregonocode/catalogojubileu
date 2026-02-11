@@ -207,7 +207,7 @@ export default function ProdutoNovoPage() {
       setAtivo(true);
       setFile(null);
       setPreviewUrl(null);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
       toast.error("Não foi possível cadastrar. Verifique e tente novamente.");
     } finally {
