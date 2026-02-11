@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabaseClient } from "@/lib/supabase/client";
 import toast, { Toaster } from "react-hot-toast";
-import { Minus, Plus, ShoppingCart, ArrowLeft } from "lucide-react";
+import { Minus, Plus, ShoppingCart, ArrowLeft, User } from "lucide-react";
 
 // ✅ popup + modal (separados)
 import ClienteCadastroPopup from "@/app/components/auth/ClienteCadastroPopup";
@@ -68,8 +68,9 @@ export default function CatalogoPage() {
   // carrinho: produtoId -> quantidade
   const [qtd, setQtd] = useState<Record<string, number>>({});
 
-  // modal de auth (usado quando tenta finalizar sem login)
+  // auth
   const [authOpen, setAuthOpen] = useState(false);
+  const [isAuthed, setIsAuthed] = useState<boolean>(false);
 
   const produtosFiltrados = useMemo(() => {
     if (categoriaAtiva === "todas") return produtos;
@@ -93,6 +94,29 @@ export default function CatalogoPage() {
     return itensCarrinho.reduce((acc, it) => acc + it.subtotal, 0);
   }, [itensCarrinho]);
 
+  // ✅ mantém estado de auth atualizado
+  useEffect(() => {
+    let mounted = true;
+
+    async function checkAuth() {
+      const { data } = await supabaseClient.auth.getSession();
+      if (!mounted) return;
+      setIsAuthed(Boolean(data.session?.user));
+    }
+
+    checkAuth();
+
+    const { data: sub } = supabaseClient.auth.onAuthStateChange(() => {
+      checkAuth();
+    });
+
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  // ✅ carregar catálogo
   useEffect(() => {
     let mounted = true;
 
@@ -100,9 +124,6 @@ export default function CatalogoPage() {
       try {
         setLoading(true);
 
-        // =========================
-        // SECTION: Carregar Empresa
-        // =========================
         const { data: emp, error: empErr } = await supabaseClient
           .from("empresas")
           .select("id, nome, slug, whatsapp")
@@ -119,9 +140,6 @@ export default function CatalogoPage() {
         if (!mounted) return;
         setEmpresa(emp);
 
-        // =========================
-        // SECTION: Carregar Categorias
-        // =========================
         const { data: cats, error: catsErr } = await supabaseClient
           .from("categorias")
           .select("id, nome, slug")
@@ -132,9 +150,6 @@ export default function CatalogoPage() {
         if (!mounted) return;
         setCategorias(cats ?? []);
 
-        // =========================
-        // SECTION: Carregar Produtos (ativos)
-        // =========================
         const { data: prods, error: prodsErr } = await supabaseClient
           .from("produtos")
           .select("id, empresa_id, categoria_id, nome, descricao, preco, estoque, imagem_url, ativo")
@@ -165,7 +180,6 @@ export default function CatalogoPage() {
       const current = prev[produto.id] ?? 0;
       const next = current + 1;
 
-      // respeita estoque (se estoque 0, deixa bloquear)
       if (produto.estoque === 0) return prev;
       if (produto.estoque > 0 && next > produto.estoque) return prev;
 
@@ -190,14 +204,25 @@ export default function CatalogoPage() {
     });
   }
 
+  async function handleUserClick() {
+    const { data } = await supabaseClient.auth.getSession();
+    const authed = Boolean(data.session?.user);
+
+    if (!authed) {
+      setAuthOpen(true);
+      return;
+    }
+
+    router.push(`/c/${String(slug)}/perfil`);
+  }
+
   async function finalizarWhatsApp() {
     if (!empresa) return;
 
-    // ✅ BLOQUEIA pedido se não estiver logado
     const { data } = await supabaseClient.auth.getSession();
-    const isAuthed = Boolean(data.session?.user);
+    const authed = Boolean(data.session?.user);
 
-    if (!isAuthed) {
+    if (!authed) {
       toast.error("Você precisa criar conta ou fazer login para finalizar o pedido.");
       setAuthOpen(true);
       return;
@@ -208,9 +233,6 @@ export default function CatalogoPage() {
       return;
     }
 
-    // =========================
-    // SECTION: Montar Mensagem WhatsApp
-    // =========================
     const lines: string[] = [];
     lines.push(`Olá! Quero fazer um pedido na ${empresa.nome}.`);
     lines.push("");
@@ -230,9 +252,6 @@ export default function CatalogoPage() {
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
-  // =========================
-  // SECTION: Estados de tela
-  // =========================
   if (!loading && !empresa) {
     return (
       <div className="min-h-screen bg-white text-[#0f172a]">
@@ -244,7 +263,7 @@ export default function CatalogoPage() {
             </p>
 
             <button
-              onClick={() => router.replace("/login")}
+              onClick={() => router.back()}
               className="mt-6 inline-flex items-center gap-2 rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm hover:bg-black/5"
             >
               <ArrowLeft size={16} /> Voltar
@@ -255,9 +274,6 @@ export default function CatalogoPage() {
     );
   }
 
-  // =========================
-  // SECTION: Layout principal
-  // =========================
   return (
     <div className="min-h-screen bg-white text-[#0f172a]">
       <Toaster position="top-right" />
@@ -265,35 +281,50 @@ export default function CatalogoPage() {
       {/* ✅ Popup automático (5s) se não logado */}
       <ClienteCadastroPopup delayMs={5000} />
 
-      {/* ✅ Modal usado quando tentar finalizar sem login */}
+      {/* ✅ Modal central (usado no clique do user e no finalizar) */}
       <ClienteAuthModal
         open={authOpen}
         onClose={() => setAuthOpen(false)}
         defaultMode="signup"
         onAuthed={() => {
-          // só pra garantir atualização de estado após login/cadastro
+          setIsAuthed(true);
           router.refresh();
         }}
       />
 
       <div className="mx-auto w-full max-w-4xl px-4 py-6">
-        {/* =========================
-            SECTION: Header Laranja
-        ========================= */}
+        {/* HEADER */}
         <section
           className="rounded-3xl p-6 text-white shadow-[0_20px_60px_-30px_rgba(0,0,0,0.25)]"
           style={{ backgroundColor: "#EB3410" }}
         >
-          <div className="text-xs opacity-90">Catálogo</div>
-          <div className="mt-1 text-2xl font-semibold tracking-tight">
-            Faça seu pedido na {empresa?.nome ?? "Pneu Forte"}
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs opacity-90">Catálogo</div>
+              <div className="mt-1 text-2xl font-semibold tracking-tight">
+                Faça seu pedido na {empresa?.nome ?? "Pneu Forte"}
+              </div>
+              <div className="mt-2 text-sm opacity-90">
+                Escolha os itens, defina as quantidades e finalize pelo WhatsApp.
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleUserClick}
+              className={cn(
+                "grid h-11 w-11 shrink-0 place-items-center rounded-full border border-white/30",
+                "bg-white/15 hover:bg-white/20 transition"
+              )}
+              aria-label={isAuthed ? "Abrir perfil" : "Entrar / Criar conta"}
+              title={isAuthed ? "Perfil" : "Entrar / Criar conta"}
+            >
+              <User size={18} className="text-white" />
+            </button>
           </div>
-          <div className="mt-2 text-sm opacity-90">Escolha os itens, defina as quantidades e finalize pelo WhatsApp.</div>
         </section>
 
-        {/* =========================
-            SECTION: Categorias (chips)
-        ========================= */}
+        {/* CATEGORIAS */}
         <section className="mt-6">
           <div className="mb-3 text-sm font-semibold text-black">Categorias</div>
 
@@ -329,14 +360,14 @@ export default function CatalogoPage() {
           </div>
         </section>
 
-        {/* =========================
-            SECTION: Lista de Produtos
-        ========================= */}
+        {/* PRODUTOS */}
         <section className="mt-6">
           <div className="mb-3 flex items-end justify-between gap-3">
             <div>
               <div className="text-sm font-semibold text-black">Produtos</div>
-              <div className="text-xs text-black/55">{loading ? "Carregando..." : `${produtosFiltrados.length} item(ns)`}</div>
+              <div className="text-xs text-black/55">
+                {loading ? "Carregando..." : `${produtosFiltrados.length} item(ns)`}
+              </div>
             </div>
           </div>
 
@@ -361,19 +392,23 @@ export default function CatalogoPage() {
                     key={p.id}
                     className="rounded-3xl border border-black/10 bg-white p-5 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]"
                   >
-                    {/* MOBILE: coluna | DESKTOP: linha */}
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-                      {/* IMAGEM */}
                       <div className="overflow-hidden rounded-2xl border border-black/10 bg-black/5 h-28 w-full sm:h-20 sm:w-20 sm:shrink-0">
                         {p.imagem_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={p.imagem_url} alt={p.nome} className="h-full w-full object-cover" loading="lazy" />
+                          <img
+                            src={p.imagem_url}
+                            alt={p.nome}
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                          />
                         ) : (
-                          <div className="grid h-full w-full place-items-center text-xs text-black/40">Sem foto</div>
+                          <div className="grid h-full w-full place-items-center text-xs text-black/40">
+                            Sem foto
+                          </div>
                         )}
                       </div>
 
-                      {/* CONTEÚDO */}
                       <div className="min-w-0 flex-1">
                         <div className="text-base font-semibold text-black">{p.nome}</div>
 
@@ -392,17 +427,11 @@ export default function CatalogoPage() {
                           </span>
                         </div>
 
-                        {/* CONTROLES */}
                         <div className="mt-4 sm:mt-3 sm:flex sm:justify-end">
                           <div className="w-full sm:w-auto">
                             <div className="mb-2 text-xs text-black/55 sm:text-right">Quantidade</div>
 
-                            <div
-                              className={cn(
-                                "flex w-full items-center gap-2 rounded-2xl border border-black/10 bg-white p-2",
-                                "sm:w-auto"
-                              )}
-                            >
+                            <div className="flex w-full items-center gap-2 rounded-2xl border border-black/10 bg-white p-2 sm:w-auto">
                               <button
                                 type="button"
                                 onClick={() => dec(p)}
@@ -447,9 +476,7 @@ export default function CatalogoPage() {
           </div>
         </section>
 
-        {/* =========================
-            SECTION: Resumo + Finalizar
-        ========================= */}
+        {/* RESUMO */}
         <section className="mt-6">
           <div className="rounded-3xl border border-black/10 bg-white p-5 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -501,7 +528,7 @@ export default function CatalogoPage() {
                 "mt-4 h-12 w-full rounded-2xl px-4 text-sm font-semibold text-white transition",
                 "disabled:cursor-not-allowed disabled:opacity-60"
               )}
-              style={{ backgroundColor: "#25D366" }} // verde WhatsApp
+              style={{ backgroundColor: "#25D366" }}
               disabled={!empresa || itensCarrinho.length === 0}
             >
               Finalizar no WhatsApp
@@ -513,9 +540,6 @@ export default function CatalogoPage() {
           </div>
         </section>
 
-        {/* =========================
-            SECTION: Rodapé
-        ========================= */}
         <section className="mt-8 pb-10 text-center text-xs text-black/35">
           {empresa?.nome ?? "Pneu Forte"} • Catálogo online
         </section>
