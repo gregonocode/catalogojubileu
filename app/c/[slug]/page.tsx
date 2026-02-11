@@ -7,6 +7,10 @@ import { supabaseClient } from "@/lib/supabase/client";
 import toast, { Toaster } from "react-hot-toast";
 import { Minus, Plus, ShoppingCart, ArrowLeft } from "lucide-react";
 
+// ✅ popup + modal (separados)
+import ClienteCadastroPopup from "@/app/components/auth/ClienteCadastroPopup";
+import ClienteAuthModal from "@/app/components/auth/ClienteAuthModal";
+
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
@@ -63,6 +67,9 @@ export default function CatalogoPage() {
 
   // carrinho: produtoId -> quantidade
   const [qtd, setQtd] = useState<Record<string, number>>({});
+
+  // modal de auth (usado quando tenta finalizar sem login)
+  const [authOpen, setAuthOpen] = useState(false);
 
   const produtosFiltrados = useMemo(() => {
     if (categoriaAtiva === "todas") return produtos;
@@ -183,8 +190,18 @@ export default function CatalogoPage() {
     });
   }
 
-  function finalizarWhatsApp() {
+  async function finalizarWhatsApp() {
     if (!empresa) return;
+
+    // ✅ BLOQUEIA pedido se não estiver logado
+    const { data } = await supabaseClient.auth.getSession();
+    const isAuthed = Boolean(data.session?.user);
+
+    if (!isAuthed) {
+      toast.error("Você precisa criar conta ou fazer login para finalizar o pedido.");
+      setAuthOpen(true);
+      return;
+    }
 
     if (itensCarrinho.length === 0) {
       toast.error("Escolha pelo menos 1 item para finalizar.");
@@ -201,9 +218,7 @@ export default function CatalogoPage() {
 
     itensCarrinho.forEach((it) => {
       const preco = Number(it.produto.preco) || 0;
-      lines.push(
-        `- ${it.quantidade}x ${it.produto.nome} (${formatBRL(preco)}) = ${formatBRL(it.subtotal)}`
-      );
+      lines.push(`- ${it.quantidade}x ${it.produto.nome} (${formatBRL(preco)}) = ${formatBRL(it.subtotal)}`);
     });
 
     lines.push("");
@@ -247,18 +262,33 @@ export default function CatalogoPage() {
     <div className="min-h-screen bg-white text-[#0f172a]">
       <Toaster position="top-right" />
 
+      {/* ✅ Popup automático (5s) se não logado */}
+      <ClienteCadastroPopup delayMs={5000} />
+
+      {/* ✅ Modal usado quando tentar finalizar sem login */}
+      <ClienteAuthModal
+        open={authOpen}
+        onClose={() => setAuthOpen(false)}
+        defaultMode="signup"
+        onAuthed={() => {
+          // só pra garantir atualização de estado após login/cadastro
+          router.refresh();
+        }}
+      />
+
       <div className="mx-auto w-full max-w-4xl px-4 py-6">
         {/* =========================
             SECTION: Header Laranja
         ========================= */}
-        <section className="rounded-3xl p-6 text-white shadow-[0_20px_60px_-30px_rgba(0,0,0,0.25)]" style={{ backgroundColor: "#EB3410" }}>
+        <section
+          className="rounded-3xl p-6 text-white shadow-[0_20px_60px_-30px_rgba(0,0,0,0.25)]"
+          style={{ backgroundColor: "#EB3410" }}
+        >
           <div className="text-xs opacity-90">Catálogo</div>
           <div className="mt-1 text-2xl font-semibold tracking-tight">
             Faça seu pedido na {empresa?.nome ?? "Pneu Forte"}
           </div>
-          <div className="mt-2 text-sm opacity-90">
-            Escolha os itens, defina as quantidades e finalize pelo WhatsApp.
-          </div>
+          <div className="mt-2 text-sm opacity-90">Escolha os itens, defina as quantidades e finalize pelo WhatsApp.</div>
         </section>
 
         {/* =========================
@@ -300,136 +330,122 @@ export default function CatalogoPage() {
         </section>
 
         {/* =========================
-    SECTION: Lista de Produtos
-========================= */}
-<section className="mt-6">
-  <div className="mb-3 flex items-end justify-between gap-3">
-    <div>
-      <div className="text-sm font-semibold text-black">Produtos</div>
-      <div className="text-xs text-black/55">
-        {loading ? "Carregando..." : `${produtosFiltrados.length} item(ns)`}
-      </div>
-    </div>
-  </div>
-
-  <div className="grid grid-cols-1 gap-4">
-    {loading ? (
-      <div className="rounded-3xl border border-black/10 bg-white p-6">
-        <div className="h-5 w-44 rounded bg-black/5" />
-        <div className="mt-3 h-4 w-64 rounded bg-black/5" />
-        <div className="mt-6 h-11 w-full rounded-2xl bg-black/5" />
-      </div>
-    ) : produtosFiltrados.length === 0 ? (
-      <div className="rounded-3xl border border-black/10 bg-white p-6 text-sm text-black/60">
-        Nenhum produto nesta categoria.
-      </div>
-    ) : (
-      produtosFiltrados.map((p) => {
-        const q = qtd[p.id] ?? 0;
-        const semEstoque = p.estoque === 0;
-
-       return (
-  <div
-    key={p.id}
-    className="rounded-3xl border border-black/10 bg-white p-5 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]"
-  >
-    {/* MOBILE: coluna | DESKTOP: linha */}
-    <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-      {/* IMAGEM */}
-      <div className="overflow-hidden rounded-2xl border border-black/10 bg-black/5
-                      h-28 w-full sm:h-20 sm:w-20 sm:shrink-0">
-        {p.imagem_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={p.imagem_url}
-            alt={p.nome}
-            className="h-full w-full object-cover"
-            loading="lazy"
-          />
-        ) : (
-          <div className="grid h-full w-full place-items-center text-xs text-black/40">
-            Sem foto
-          </div>
-        )}
-      </div>
-
-      {/* CONTEÚDO */}
-      <div className="min-w-0 flex-1">
-        <div className="text-base font-semibold text-black">{p.nome}</div>
-
-        {p.descricao ? (
-          <div className="mt-1 text-sm text-black/60">{p.descricao}</div>
-        ) : (
-          <div className="mt-1 text-sm text-black/40">—</div>
-        )}
-
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="rounded-full border border-black/10 bg-black/5 px-3 py-1 text-xs font-semibold text-black">
-            {formatBRL(Number(p.preco) || 0)}
-          </span>
-          <span className="rounded-full border border-black/10 bg-white px-3 py-1 text-xs text-black/60">
-            {semEstoque ? "Sem estoque" : `Estoque: ${p.estoque}`}
-          </span>
-        </div>
-
-        {/* CONTROLES: embaixo no mobile, alinhado à direita no desktop */}
-        <div className="mt-4 sm:mt-3 sm:flex sm:justify-end">
-          <div className="w-full sm:w-auto">
-            <div className="mb-2 text-xs text-black/55 sm:text-right">Quantidade</div>
-
-            <div
-              className={cn(
-                "flex w-full items-center gap-2 rounded-2xl border border-black/10 bg-white p-2",
-                "sm:w-auto"
-              )}
-            >
-              <button
-                type="button"
-                onClick={() => dec(p)}
-                disabled={q <= 0}
-                className={cn(
-                  "grid h-11 w-11 place-items-center rounded-xl border border-black/10 bg-white hover:bg-black/5",
-                  "disabled:cursor-not-allowed disabled:opacity-50"
-                )}
-                aria-label="Diminuir"
-              >
-                <Minus size={18} />
-              </button>
-
-              <input
-                value={q}
-                onChange={(e) => setExact(p, Number(e.target.value))}
-                inputMode="numeric"
-                className="h-11 flex-1 rounded-xl border border-black/10 bg-white text-center text-sm outline-none
-                           sm:w-16 sm:flex-none"
-              />
-
-              <button
-                type="button"
-                onClick={() => inc(p)}
-                disabled={semEstoque || (p.estoque > 0 && q >= p.estoque)}
-                className={cn(
-                  "grid h-11 w-11 place-items-center rounded-xl border border-black/10 bg-white hover:bg-black/5",
-                  "disabled:cursor-not-allowed disabled:opacity-50"
-                )}
-                aria-label="Aumentar"
-              >
-                <Plus size={18} />
-              </button>
+            SECTION: Lista de Produtos
+        ========================= */}
+        <section className="mt-6">
+          <div className="mb-3 flex items-end justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-black">Produtos</div>
+              <div className="text-xs text-black/55">{loading ? "Carregando..." : `${produtosFiltrados.length} item(ns)`}</div>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
-  </div>
 
+          <div className="grid grid-cols-1 gap-4">
+            {loading ? (
+              <div className="rounded-3xl border border-black/10 bg-white p-6">
+                <div className="h-5 w-44 rounded bg-black/5" />
+                <div className="mt-3 h-4 w-64 rounded bg-black/5" />
+                <div className="mt-6 h-11 w-full rounded-2xl bg-black/5" />
+              </div>
+            ) : produtosFiltrados.length === 0 ? (
+              <div className="rounded-3xl border border-black/10 bg-white p-6 text-sm text-black/60">
+                Nenhum produto nesta categoria.
+              </div>
+            ) : (
+              produtosFiltrados.map((p) => {
+                const q = qtd[p.id] ?? 0;
+                const semEstoque = p.estoque === 0;
 
-        );
-      })
-    )}
-  </div>
-</section>
+                return (
+                  <div
+                    key={p.id}
+                    className="rounded-3xl border border-black/10 bg-white p-5 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]"
+                  >
+                    {/* MOBILE: coluna | DESKTOP: linha */}
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                      {/* IMAGEM */}
+                      <div className="overflow-hidden rounded-2xl border border-black/10 bg-black/5 h-28 w-full sm:h-20 sm:w-20 sm:shrink-0">
+                        {p.imagem_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={p.imagem_url} alt={p.nome} className="h-full w-full object-cover" loading="lazy" />
+                        ) : (
+                          <div className="grid h-full w-full place-items-center text-xs text-black/40">Sem foto</div>
+                        )}
+                      </div>
 
+                      {/* CONTEÚDO */}
+                      <div className="min-w-0 flex-1">
+                        <div className="text-base font-semibold text-black">{p.nome}</div>
+
+                        {p.descricao ? (
+                          <div className="mt-1 text-sm text-black/60">{p.descricao}</div>
+                        ) : (
+                          <div className="mt-1 text-sm text-black/40">—</div>
+                        )}
+
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <span className="rounded-full border border-black/10 bg-black/5 px-3 py-1 text-xs font-semibold text-black">
+                            {formatBRL(Number(p.preco) || 0)}
+                          </span>
+                          <span className="rounded-full border border-black/10 bg-white px-3 py-1 text-xs text-black/60">
+                            {semEstoque ? "Sem estoque" : `Estoque: ${p.estoque}`}
+                          </span>
+                        </div>
+
+                        {/* CONTROLES */}
+                        <div className="mt-4 sm:mt-3 sm:flex sm:justify-end">
+                          <div className="w-full sm:w-auto">
+                            <div className="mb-2 text-xs text-black/55 sm:text-right">Quantidade</div>
+
+                            <div
+                              className={cn(
+                                "flex w-full items-center gap-2 rounded-2xl border border-black/10 bg-white p-2",
+                                "sm:w-auto"
+                              )}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => dec(p)}
+                                disabled={q <= 0}
+                                className={cn(
+                                  "grid h-11 w-11 place-items-center rounded-xl border border-black/10 bg-white hover:bg-black/5",
+                                  "disabled:cursor-not-allowed disabled:opacity-50"
+                                )}
+                                aria-label="Diminuir"
+                              >
+                                <Minus size={18} />
+                              </button>
+
+                              <input
+                                value={q}
+                                onChange={(e) => setExact(p, Number(e.target.value))}
+                                inputMode="numeric"
+                                className="h-11 flex-1 rounded-xl border border-black/10 bg-white text-center text-sm outline-none sm:w-16 sm:flex-none"
+                              />
+
+                              <button
+                                type="button"
+                                onClick={() => inc(p)}
+                                disabled={semEstoque || (p.estoque > 0 && q >= p.estoque)}
+                                className={cn(
+                                  "grid h-11 w-11 place-items-center rounded-xl border border-black/10 bg-white hover:bg-black/5",
+                                  "disabled:cursor-not-allowed disabled:opacity-50"
+                                )}
+                                aria-label="Aumentar"
+                              >
+                                <Plus size={18} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </section>
 
         {/* =========================
             SECTION: Resumo + Finalizar
@@ -444,9 +460,7 @@ export default function CatalogoPage() {
                 <div>
                   <div className="text-sm font-semibold text-black">Seu pedido</div>
                   <div className="text-xs text-black/55">
-                    {itensCarrinho.length === 0
-                      ? "Escolha os itens acima"
-                      : `${itensCarrinho.length} item(ns) no carrinho`}
+                    {itensCarrinho.length === 0 ? "Escolha os itens acima" : `${itensCarrinho.length} item(ns) no carrinho`}
                   </div>
                 </div>
               </div>
