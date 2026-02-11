@@ -65,7 +65,7 @@ export default function ClienteCadastroPopup({ delayMs = 5000 }: Props) {
         <div className="fixed bottom-4 left-1/2 z-[70] w-[92vw] max-w-md -translate-x-1/2">
           <div className="rounded-2xl border border-black/10 bg-white p-4 shadow-lg">
             <div className="text-sm font-semibold">
-              Você não tem cadastro 😅
+              Você ainda não tem cadastro!
             </div>
             <div className="mt-1 text-sm text-black/60">
               Faça o cadastro aqui abaixo é <span className="font-semibold">super rápido</span>!

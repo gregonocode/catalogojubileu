@@ -173,12 +173,12 @@ export default function ClienteAuthModal({
         <div className="mt-4 space-y-3">
           {mode === 'signup' && (
             <div>
-              <label className="text-xs font-medium text-black/70">Nome</label>
+              <label className="text-xs font-medium text-black/70">Nome da Empresa</label>
               <input
                 value={form.nome}
                 onChange={(e) => setForm((s) => ({ ...s, nome: e.target.value }))}
                 className="mt-1 w-full rounded-xl border border-black/10 px-3 py-2 outline-none focus:border-black/30"
-                placeholder="Seu nome"
+                placeholder="nome da Empresa"
                 autoComplete="name"
               />
             </div>
