@@ -1,11 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
-  Package,
   PlusCircle,
   List,
   Users,
@@ -14,8 +13,11 @@ import {
   ChevronLeft,
   ChevronRight,
   LogOut,
+  Tag,
 } from "lucide-react";
 import { FaMotorcycle } from "react-icons/fa";
+import toast, { Toaster } from "react-hot-toast";
+import { supabaseClient } from "@/lib/supabase/client";
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -30,14 +32,18 @@ type NavItem = {
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const items = useMemo<NavItem[]>(
     () => [
       { label: "Visão geral", href: "/dashboard", icon: <LayoutDashboard size={18} />, group: "Geral" },
 
       { label: "Cadastrar produto", href: "/dashboard/produtos/novo", icon: <PlusCircle size={18} />, group: "Produtos" },
+      { label: "Criar Categorias", href: "/dashboard/produtos/categorias", icon: <Tag size={18} />, group: "Produtos" },
       { label: "Lista de produtos", href: "/dashboard/produtos", icon: <List size={18} />, group: "Produtos" },
+      
 
       { label: "Clientes", href: "/dashboard/clientes", icon: <Users size={18} />, group: "Gestão" },
       { label: "Pedidos", href: "/dashboard/pedidos", icon: <ReceiptText size={18} />, group: "Gestão" },
@@ -56,8 +62,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return [...groups.entries()];
   }, [items]);
 
+  async function handleLogout() {
+    if (loggingOut) return;
+
+    setLoggingOut(true);
+    toast.dismiss();
+
+    const { error } = await supabaseClient.auth.signOut();
+
+    setLoggingOut(false);
+
+    if (error) {
+      toast.error("Não foi possível sair. Tente novamente.");
+      return;
+    }
+
+    toast.success("Você saiu da conta.");
+    router.replace("/login");
+  }
+
   return (
     <div className="min-h-screen bg-white text-[#0f172a]">
+      <Toaster position="top-right" />
       <div className="flex min-h-screen">
         {/* SIDEBAR */}
         <aside
@@ -70,14 +96,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {/* Brand */}
             <div className="flex items-center justify-between gap-3 px-4 py-4">
               <div className="flex items-center gap-3">
-                {/* sem círculo com iniciais */}
                 <div className="grid h-10 w-10 place-items-center rounded-2xl border border-black/10 bg-black/5">
                   <FaMotorcycle size={18} />
                 </div>
 
                 {!collapsed && (
                   <div className="leading-tight">
-                    <div className="text-sm font-semibold">StartMotos</div>
+                    <div className="text-sm font-semibold">Pneu Forte</div>
                     <div className="text-xs text-black/55">Painel do catálogo</div>
                   </div>
                 )}
@@ -135,13 +160,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="border-t border-black/10 p-4">
               <button
                 type="button"
-                onClick={() => alert("Depois a gente liga logout real 😉")}
-                className="flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-sm hover:bg-black/5"
+                onClick={handleLogout}
+                disabled={loggingOut}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-sm hover:bg-black/5",
+                  "disabled:cursor-not-allowed disabled:opacity-60"
+                )}
               >
                 <span className="grid h-9 w-9 place-items-center rounded-xl border border-black/10 bg-white">
                   <LogOut size={18} />
                 </span>
-                {!collapsed && <span className="font-medium">Sair</span>}
+                {!collapsed && <span className="font-medium">{loggingOut ? "Saindo..." : "Sair"}</span>}
               </button>
             </div>
           </div>
@@ -154,7 +183,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-4">
               <div>
                 <div className="text-sm font-semibold">Dashboard</div>
-                <div className="text-xs text-black/55">Vendas e clientes (visual)</div>
+                <div className="text-xs text-black/55">Pneu Forte • gestão do catálogo</div>
               </div>
 
               <div className="flex items-center gap-2">

@@ -1,25 +1,55 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import toast, { Toaster } from "react-hot-toast";
+import { supabaseClient } from "../../../lib/supabase/client";
+
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
 export default function LoginClient() {
+  const router = useRouter();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
 
   const canSubmit = useMemo(() => {
     const e = email.trim();
     return e.length > 3 && e.includes("@") && password.trim().length >= 4;
   }, [email, password]);
 
+  // Se já estiver logado, manda direto pro dashboard
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      try {
+        const { data } = await supabaseClient.auth.getSession();
+        if (!mounted) return;
+
+        if (data.session) {
+          router.replace("/dashboard");
+          return;
+        }
+      } finally {
+        if (mounted) setCheckingSession(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [router]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!canSubmit) {
+
+    if (!canSubmit || loading) {
       toast.error("Preencha e-mail e senha corretamente.");
       return;
     }
@@ -27,11 +57,38 @@ export default function LoginClient() {
     setLoading(true);
     toast.dismiss();
 
-    // Fake login (só visual)
-    await new Promise((r) => setTimeout(r, 900));
+    const { error } = await supabaseClient.auth.signInWithPassword({
+      email: email.trim(),
+      password: password.trim(),
+    });
 
     setLoading(false);
-    toast.success("Login OK (mock) — agora você pode ligar no Supabase.");
+
+    if (error) {
+      toast.error("E-mail ou senha inválidos.");
+      return;
+    }
+
+    toast.success("Bem-vindo! Indo para o painel...");
+    router.replace("/dashboard");
+  }
+
+  // Evita piscar a tela do login enquanto checa sessão
+  if (checkingSession) {
+    return (
+      <>
+        <Toaster position="top-right" />
+        <div className="rounded-3xl border border-black/10 bg-white p-6 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.25)]">
+          <div className="h-6 w-40 rounded bg-black/5" />
+          <div className="mt-2 h-4 w-64 rounded bg-black/5" />
+          <div className="mt-6 space-y-4">
+            <div className="h-11 w-full rounded-2xl bg-black/5" />
+            <div className="h-11 w-full rounded-2xl bg-black/5" />
+            <div className="mt-2 h-11 w-full rounded-2xl bg-black/10" />
+          </div>
+        </div>
+      </>
+    );
   }
 
   return (
@@ -56,7 +113,9 @@ export default function LoginClient() {
 
       <div className="rounded-3xl border border-black/10 bg-white p-6 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.25)]">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight text-black">Entrar</h2>
+          <h2 className="text-2xl font-semibold tracking-tight text-black">
+            Entrar
+          </h2>
           <p className="mt-1 text-sm text-black/60">
             Acesse seu painel para gerenciar produtos.
           </p>
@@ -69,7 +128,8 @@ export default function LoginClient() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               type="email"
-              placeholder="voce@exemplo.com"
+              placeholder="SeuEmail@exemplo.com"
+              autoComplete="email"
               className="h-11 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none ring-0 transition focus:border-black/20 focus:shadow-[0_0_0_4px_rgba(235,52,16,0.12)]"
             />
           </div>
@@ -81,11 +141,10 @@ export default function LoginClient() {
               onChange={(e) => setPassword(e.target.value)}
               type="password"
               placeholder="••••••••"
+              autoComplete="current-password"
               className="h-11 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none ring-0 transition focus:border-black/20 focus:shadow-[0_0_0_4px_rgba(235,52,16,0.12)]"
             />
           </div>
-
-          
 
           <button
             type="submit"
@@ -98,8 +157,6 @@ export default function LoginClient() {
           >
             {loading ? "Entrando..." : "Entrar"}
           </button>
-
-          
         </form>
       </div>
 
