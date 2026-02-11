@@ -50,51 +50,58 @@ export default function ClienteAuthModal({
   if (!open) return null;
 
   async function handleSignup() {
-    setLoading(true);
-    setMsg(null);
+  setLoading(true);
+  setMsg(null);
 
-    const nome = form.nome.trim();
-    const email = form.email.trim();
-    const senha = form.senha;
+  const nome = form.nome.trim();
+  const email = form.email.trim();
+  const senha = form.senha;
 
-    if (nome.length < 2) {
-      setLoading(false);
-      setMsg('Digite seu nome.');
-      return;
-    }
-    if (!email.includes('@')) {
-      setLoading(false);
-      setMsg('Digite um e-mail válido.');
-      return;
-    }
-    if (senha.length < 6) {
-      setLoading(false);
-      setMsg('Sua senha precisa ter pelo menos 6 caracteres.');
-      return;
-    }
-
-    const { error } = await supabase.auth.signUp({
-      email,
-      password: senha,
-      options: {
-        data: {
-          role: 'cliente',
-          nome,
-        },
-      },
-    });
-
+  if (nome.length < 2) {
     setLoading(false);
-
-    if (error) {
-      setMsg(error.message);
-      return;
-    }
-
-    setMsg('Conta criada! Se precisar confirmar por e-mail, verifique sua caixa de entrada.');
-    onAuthed?.();
-    onClose();
+    setMsg("Digite seu nome.");
+    return;
   }
+  if (!email.includes("@")) {
+    setLoading(false);
+    setMsg("Digite um e-mail válido.");
+    return;
+  }
+  if (senha.length < 6) {
+    setLoading(false);
+    setMsg("Sua senha precisa ter pelo menos 6 caracteres.");
+    return;
+  }
+
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password: senha,
+    options: {
+      data: {
+        role: "cliente",
+        nome,
+      },
+    },
+  });
+
+  setLoading(false);
+
+  if (error) {
+    setMsg(error.message);
+    return;
+  }
+
+  const loggedNow = Boolean(data.session?.user);
+
+  if (!loggedNow) {
+    // fallback caso o projeto ainda esteja com confirmação ligada
+    setMsg("Conta criada, mas falta liberar o login imediato. Desative 'Confirm email' no Supabase.");
+    return;
+  }
+
+  onAuthed?.();
+  onClose();
+}
 
   async function handleLogin() {
     setLoading(true);
