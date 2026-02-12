@@ -17,6 +17,13 @@ type Empresa = {
   whatsapp: string;
 };
 
+type ClienteUsuarioRow = {
+  usuario_id: string;
+  nome: string | null;
+  telefone: string | null;
+  criado_em: string;
+};
+
 type ClienteContatoRow = {
   id: string;
   empresa_id: string;
@@ -26,6 +33,26 @@ type ClienteContatoRow = {
   atualizado_em: string;
 };
 
+type ClienteItem =
+  | {
+      kind: "usuario";
+      key: `u_${string}`;
+      id: string; // usuario_id
+      nome: string;
+      telefone: string | null;
+      criado_em: string;
+    }
+  | {
+      kind: "contato";
+      key: `c_${string}`;
+      id: string; // id do clientes_contatos
+      nome: string;
+      telefone: string | null;
+      criado_em: string;
+    };
+
+type FilterKind = "all" | "usuario" | "contato";
+
 type ModalMode = "create" | "edit";
 
 type FormState = {
@@ -33,13 +60,7 @@ type FormState = {
   telefone: string;
 };
 
-function formatPhoneDisplay(v: string | null) {
-  if (!v) return "—";
-  return v;
-}
-
 function formatDateShortBR(iso: string) {
-  // exemplo: 12/02/26, 09:19
   const d = new Date(iso);
   return new Intl.DateTimeFormat("pt-BR", {
     day: "2-digit",
@@ -55,9 +76,22 @@ function onlyDigits(s: string) {
 }
 
 function normalizePhone(v: string) {
-  // mantém só dígitos, mas você pode deixar livre se preferir
   const dig = onlyDigits(v);
   return dig;
+}
+
+function TagKind({ kind }: { kind: ClienteItem["kind"] }) {
+  const label = kind === "usuario" ? "Usuário" : "Contato";
+  const cls =
+    kind === "usuario"
+      ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+      : "bg-slate-50 text-slate-700 ring-slate-200";
+
+  return (
+    <span className={cn("inline-flex rounded-full px-2 py-1 text-xs font-semibold ring-1", cls)}>
+      {label}
+    </span>
+  );
 }
 
 function Modal({
@@ -65,6 +99,7 @@ function Modal({
   mode,
   loading,
   title,
+  subtitle,
   form,
   setForm,
   onClose,
@@ -74,6 +109,7 @@ function Modal({
   mode: ModalMode;
   loading: boolean;
   title: string;
+  subtitle: string;
   form: FormState;
   setForm: (next: FormState) => void;
   onClose: () => void;
@@ -96,11 +132,7 @@ function Modal({
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-lg font-semibold text-black">{title}</div>
-            <div className="mt-1 text-sm text-black/60">
-              {mode === "create"
-                ? "Cadastre um contato para sua empresa."
-                : "Edite apenas nome e telefone."}
-            </div>
+            <div className="mt-1 text-sm text-black/60">{subtitle}</div>
           </div>
 
           <button
@@ -109,6 +141,7 @@ function Modal({
             className="grid h-10 w-10 place-items-center rounded-2xl border border-black/10 bg-white hover:bg-black/5"
             aria-label="Fechar modal"
             title="Fechar"
+            disabled={loading}
           >
             <X size={18} />
           </button>
@@ -137,7 +170,7 @@ function Modal({
               autoComplete="tel"
             />
             <div className="mt-1 text-xs text-black/45">
-              Dica: pode digitar com espaços e traços, eu salvo só os números.
+              Dica: pode digitar com espaços e traços — eu salvo só os números.
             </div>
           </div>
 
@@ -151,7 +184,7 @@ function Modal({
               "bg-[#E83A1C] hover:brightness-95"
             )}
           >
-            {loading ? "Salvando..." : mode === "create" ? "Adicionar cliente" : "Salvar alterações"}
+            {loading ? "Salvando..." : mode === "create" ? "Adicionar contato" : "Salvar alterações"}
           </button>
         </div>
       </div>
@@ -163,29 +196,63 @@ export default function DashboardClientesPage() {
   const [loading, setLoading] = useState(true);
 
   const [empresa, setEmpresa] = useState<Empresa | null>(null);
-  const [rows, setRows] = useState<ClienteContatoRow[]>([]);
+
+  // dados brutos
+  const [usuarios, setUsuarios] = useState<ClienteUsuarioRow[]>([]);
+  const [contatos, setContatos] = useState<ClienteContatoRow[]>([]);
+
+  // UI
   const [query, setQuery] = useState("");
+  const [kindFilter, setKindFilter] = useState<FilterKind>("all");
 
   // modal
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>("create");
   const [saving, setSaving] = useState(false);
-  const [editing, setEditing] = useState<ClienteContatoRow | null>(null);
-
+  const [editing, setEditing] = useState<ClienteItem | null>(null);
   const [form, setForm] = useState<FormState>({ nome: "", telefone: "" });
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return rows;
+  const merged: ClienteItem[] = useMemo(() => {
+    const u: ClienteItem[] = usuarios.map((r) => ({
+      kind: "usuario",
+      key: `u_${r.usuario_id}`,
+      id: r.usuario_id,
+      nome: r.nome ?? "Cliente",
+      telefone: r.telefone ?? null,
+      criado_em: r.criado_em,
+    }));
 
-    return rows.filter((c) => {
-      const nome = (c.nome || "").toLowerCase();
-      const tel = (c.telefone || "").toLowerCase();
+    const c: ClienteItem[] = contatos.map((r) => ({
+      kind: "contato",
+      key: `c_${r.id}`,
+      id: r.id,
+      nome: r.nome,
+      telefone: r.telefone ?? null,
+      criado_em: r.criado_em,
+    }));
+
+    // mistura e ordena por data desc
+    return [...u, ...c].sort((a, b) => {
+      const ta = new Date(a.criado_em).getTime();
+      const tb = new Date(b.criado_em).getTime();
+      return tb - ta;
+    });
+  }, [usuarios, contatos]);
+
+  const filtered: ClienteItem[] = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    return merged.filter((it) => {
+      if (kindFilter !== "all" && it.kind !== kindFilter) return false;
+      if (!q) return true;
+
+      const nome = (it.nome || "").toLowerCase();
+      const tel = (it.telefone || "").toLowerCase();
       return nome.includes(q) || tel.includes(q);
     });
-  }, [rows, query]);
+  }, [merged, query, kindFilter]);
 
-  async function loadEmpresaAndClientes() {
+  async function loadAll() {
     setLoading(true);
     try {
       const { data: userData, error: userErr } = await supabaseClient.auth.getUser();
@@ -203,24 +270,58 @@ export default function DashboardClientesPage() {
         .maybeSingle();
 
       if (empErr) throw empErr;
+
       if (!emp) {
         setEmpresa(null);
-        setRows([]);
+        setUsuarios([]);
+        setContatos([]);
         return;
       }
 
-      setEmpresa(emp as Empresa);
+      const empresaTyped = emp as Empresa;
+      setEmpresa(empresaTyped);
 
-      const { data, error } = await supabaseClient
+      // 1) contatos manuais
+      const contatosReq = supabaseClient
         .from("clientes_contatos")
         .select("id, empresa_id, nome, telefone, criado_em, atualizado_em")
-        .eq("empresa_id", emp.id)
+        .eq("empresa_id", empresaTyped.id)
         .order("criado_em", { ascending: false });
 
-      if (error) throw error;
+      // 2) usuários logados: pega IDs distintos em pedidos da empresa
+      const idsReq = supabaseClient
+        .from("pedidos")
+        .select("cliente_usuario_id")
+        .eq("empresa_id", empresaTyped.id)
+        .not("cliente_usuario_id", "is", null);
 
-      const typed = (data ?? []) as unknown as ClienteContatoRow[];
-      setRows(typed);
+      const [contatosRes, idsRes] = await Promise.all([contatosReq, idsReq]);
+
+      if (contatosRes.error) throw contatosRes.error;
+      if (idsRes.error) throw idsRes.error;
+
+      const contatosData = (contatosRes.data ?? []) as unknown as ClienteContatoRow[];
+      setContatos(contatosData);
+
+      const ids = (idsRes.data ?? [])
+        .map((r) => r.cliente_usuario_id)
+        .filter((v): v is string => typeof v === "string");
+
+      const uniqueIds = Array.from(new Set(ids));
+
+      if (uniqueIds.length === 0) {
+        setUsuarios([]);
+      } else {
+        const { data: usuariosData, error: uErr } = await supabaseClient
+          .from("clientes")
+          .select("usuario_id, nome, telefone, criado_em")
+          .in("usuario_id", uniqueIds);
+
+        if (uErr) throw uErr;
+
+        const typed = (usuariosData ?? []) as unknown as ClienteUsuarioRow[];
+        setUsuarios(typed);
+      }
     } catch (err) {
       console.error(err);
       toast.error("Erro ao carregar clientes.");
@@ -230,7 +331,7 @@ export default function DashboardClientesPage() {
   }
 
   useEffect(() => {
-    void loadEmpresaAndClientes();
+    void loadAll();
   }, []);
 
   function openCreate() {
@@ -240,12 +341,12 @@ export default function DashboardClientesPage() {
     setModalOpen(true);
   }
 
-  function openEdit(row: ClienteContatoRow) {
+  function openEdit(item: ClienteItem) {
     setModalMode("edit");
-    setEditing(row);
+    setEditing(item);
     setForm({
-      nome: row.nome ?? "",
-      telefone: row.telefone ?? "",
+      nome: item.nome ?? "",
+      telefone: item.telefone ?? "",
     });
     setModalOpen(true);
   }
@@ -267,6 +368,7 @@ export default function DashboardClientesPage() {
     setSaving(true);
     try {
       if (modalMode === "create") {
+        // cria contato manual
         const payload = {
           empresa_id: empresa.id,
           nome,
@@ -276,42 +378,50 @@ export default function DashboardClientesPage() {
         const { error } = await supabaseClient.from("clientes_contatos").insert(payload);
         if (error) throw error;
 
-        toast.success("Cliente adicionado.");
+        toast.success("Contato adicionado.");
       } else {
-        if (!editing?.id) {
-          toast.error("Cliente inválido.");
+        if (!editing) {
+          toast.error("Item inválido.");
           return;
         }
 
         const payload = {
           nome,
           telefone: telefone ? normalizePhone(telefone) : null,
-          atualizado_em: new Date().toISOString(),
         };
 
-        const { error } = await supabaseClient
-          .from("clientes_contatos")
-          .update(payload)
-          .eq("id", editing.id)
-          .eq("empresa_id", empresa.id);
+        if (editing.kind === "contato") {
+          const { error } = await supabaseClient
+            .from("clientes_contatos")
+            .update({ ...payload, atualizado_em: new Date().toISOString() })
+            .eq("id", editing.id)
+            .eq("empresa_id", empresa.id);
 
-        if (error) throw error;
+          if (error) throw error;
+          toast.success("Contato atualizado.");
+        } else {
+          // usuário logado (tabela clientes)
+          const { error } = await supabaseClient
+            .from("clientes")
+            .update(payload)
+            .eq("usuario_id", editing.id);
 
-        toast.success("Cliente atualizado.");
+          if (error) throw error;
+          toast.success("Usuário atualizado.");
+        }
       }
 
       setModalOpen(false);
       setEditing(null);
-      await loadEmpresaAndClientes();
+      await loadAll();
     } catch (err) {
       console.error(err);
-      toast.error("Não foi possível salvar o cliente.");
+      toast.error("Não foi possível salvar.");
     } finally {
       setSaving(false);
     }
   }
 
-  // sem empresa
   if (!loading && !empresa) {
     return (
       <div className="rounded-3xl border border-black/10 bg-white p-6 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]">
@@ -326,6 +436,9 @@ export default function DashboardClientesPage() {
     );
   }
 
+  const totalUsuarios = usuarios.length;
+  const totalContatos = contatos.length;
+
   return (
     <div className="space-y-6">
       {/* topo */}
@@ -333,39 +446,86 @@ export default function DashboardClientesPage() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="text-sm text-black/60">Clientes</div>
-            <div className="mt-1 text-lg font-semibold text-black">
-              {empresa?.nome ?? "—"}
-            </div>
+            <div className="mt-1 text-lg font-semibold text-black">{empresa?.nome ?? "—"}</div>
             <div className="mt-1 text-xs text-black/55">
-              Lista de contatos cadastrados manualmente (separado dos clientes que fazem login).
+              Misturando <b>usuários (logados)</b> e <b>contatos (manuais)</b>.
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={openCreate}
-              className={cn(
-                "inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold text-white",
-                "bg-[#E83A1C] hover:brightness-95"
-              )}
-            >
-              <Plus size={18} /> Adicionar cliente
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={openCreate}
+            className={cn(
+              "inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold text-white",
+              "bg-[#E83A1C] hover:brightness-95"
+            )}
+          >
+            <Plus size={18} /> Adicionar contato
+          </button>
         </div>
 
-        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm text-black/60">
-            {loading ? "Carregando..." : `${rows.length} cliente(s)`}
+        <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-black/60">
+              {loading ? "Carregando..." : `${merged.length} total`}
+            </span>
+
+            <span className="text-xs text-black/40">•</span>
+
+            <span className="text-sm text-black/60">
+              <span className="font-semibold text-emerald-700">{totalUsuarios}</span> usuários
+            </span>
+
+            <span className="text-xs text-black/40">•</span>
+
+            <span className="text-sm text-black/60">
+              <span className="font-semibold text-slate-700">{totalContatos}</span> contatos
+            </span>
           </div>
 
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar por nome ou telefone..."
-            className="w-full rounded-2xl border border-black/10 bg-white px-4 py-2.5 text-sm outline-none focus:border-black/30 sm:max-w-sm"
-          />
+          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+            {/* filtro */}
+            <div className="inline-flex overflow-hidden rounded-2xl border border-black/10 bg-white">
+              <button
+                type="button"
+                onClick={() => setKindFilter("all")}
+                className={cn(
+                  "px-3 py-2 text-sm",
+                  kindFilter === "all" ? "bg-black/5 font-semibold" : "hover:bg-black/5"
+                )}
+              >
+                Todos
+              </button>
+              <button
+                type="button"
+                onClick={() => setKindFilter("usuario")}
+                className={cn(
+                  "px-3 py-2 text-sm",
+                  kindFilter === "usuario" ? "bg-black/5 font-semibold" : "hover:bg-black/5"
+                )}
+              >
+                Usuários
+              </button>
+              <button
+                type="button"
+                onClick={() => setKindFilter("contato")}
+                className={cn(
+                  "px-3 py-2 text-sm",
+                  kindFilter === "contato" ? "bg-black/5 font-semibold" : "hover:bg-black/5"
+                )}
+              >
+                Contatos
+              </button>
+            </div>
+
+            {/* busca */}
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar por nome ou telefone..."
+              className="w-full rounded-2xl border border-black/10 bg-white px-4 py-2.5 text-sm outline-none focus:border-black/30 sm:max-w-sm"
+            />
+          </div>
         </div>
       </div>
 
@@ -375,7 +535,7 @@ export default function DashboardClientesPage() {
           <table className="w-full text-left text-sm">
             <thead className="bg-black/5 text-xs text-black/55">
               <tr>
-                <th className="px-4 py-3">Nome</th>
+                <th className="px-4 py-3">Cliente</th>
                 <th className="px-4 py-3">Telefone</th>
                 <th className="px-4 py-3">Criado</th>
                 <th className="px-4 py-3 text-right">Ações</th>
@@ -397,10 +557,21 @@ export default function DashboardClientesPage() {
                 </tr>
               ) : (
                 filtered.map((c) => (
-                  <tr key={c.id} className="hover:bg-black/5">
-                    <td className="px-4 py-3 font-medium text-black">{c.nome}</td>
-                    <td className="px-4 py-3 text-black/70">{formatPhoneDisplay(c.telefone)}</td>
+                  <tr key={c.key} className="hover:bg-black/5">
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-black">{c.nome}</span>
+                        <TagKind kind={c.kind} />
+                      </div>
+                      <div className="mt-1 text-xs text-black/45">
+                        {c.kind === "usuario" ? "Cliente logado" : "Contato manual"}
+                      </div>
+                    </td>
+
+                    <td className="px-4 py-3 text-black/70">{c.telefone ?? "—"}</td>
+
                     <td className="px-4 py-3 text-black/55">{formatDateShortBR(c.criado_em)}</td>
+
                     <td className="px-4 py-3 text-right">
                       <button
                         type="button"
@@ -422,13 +593,26 @@ export default function DashboardClientesPage() {
             </tbody>
           </table>
         </div>
+
+        {!loading && merged.length === 0 ? (
+          <div className="mt-4 rounded-2xl border border-black/10 bg-black/5 p-4 text-sm text-black/70">
+            Ainda não existe nenhum cliente (nem usuário logado, nem contato manual).
+          </div>
+        ) : null}
       </div>
 
       <Modal
         open={modalOpen}
         mode={modalMode}
         loading={saving}
-        title={modalMode === "create" ? "Adicionar cliente" : "Editar cliente"}
+        title={modalMode === "create" ? "Adicionar contato" : "Editar cliente"}
+        subtitle={
+          modalMode === "create"
+            ? "Isso cria um contato manual (não precisa login)."
+            : editing?.kind === "usuario"
+            ? "Editando um usuário logado (tabela clientes)."
+            : "Editando um contato manual (tabela clientes_contatos)."
+        }
         form={form}
         setForm={setForm}
         onClose={() => {
