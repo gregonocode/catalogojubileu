@@ -17,10 +17,6 @@ type NotificacaoRow = {
   criado_em: string;
 };
 
-function cn(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ");
-}
-
 export default function NovoPedidoPopup({ soundEnabled }: Props) {
   const router = useRouter();
 
@@ -145,18 +141,32 @@ export default function NovoPedidoPopup({ soundEnabled }: Props) {
   if (!open || !current) return null;
 
   return (
-    <div className="fixed bottom-5 right-5 z-[90] w-[92vw] max-w-sm">
-      <div className="rounded-3xl border border-black/10 bg-white p-4 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.35)]">
-        <div className="text-sm font-semibold text-black">Você tem um novo pedido</div>
+    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+      {/* overlay escuro + blur */}
+      <button
+        type="button"
+        aria-label="Fechar"
+        onClick={async () => {
+          await marcarComoLida(current.id);
+          setOpen(false);
+          setCurrent(null);
+        }}
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+      />
 
-        <div className="mt-1 text-xs text-black/60">
-          Pedido:{" "}
-          <span className="font-semibold">
-            #{current.pedido_id.slice(0, 8).toUpperCase()}
-          </span>
-        </div>
+      {/* card */}
+      <div className="relative w-[92vw] max-w-md rounded-3xl border border-black/10 bg-white p-5 shadow-[0_30px_90px_-40px_rgba(0,0,0,0.55)]">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-base font-semibold text-black">Você tem um novo pedido</div>
+            <div className="mt-1 text-sm text-black/60">
+              Pedido:{" "}
+              <span className="font-semibold">
+                #{current.pedido_id.slice(0, 8).toUpperCase()}
+              </span>
+            </div>
+          </div>
 
-        <div className="mt-3 flex items-center gap-2">
           <button
             type="button"
             onClick={async () => {
@@ -164,7 +174,22 @@ export default function NovoPedidoPopup({ soundEnabled }: Props) {
               setOpen(false);
               setCurrent(null);
             }}
-            className="flex-1 rounded-2xl border border-black/10 bg-white px-4 py-2.5 text-sm font-medium text-black/70 hover:bg-black/5"
+            className="rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm text-black/60 hover:bg-black/5"
+            title="Fechar"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="mt-5 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={async () => {
+              await marcarComoLida(current.id);
+              setOpen(false);
+              setCurrent(null);
+            }}
+            className="flex-1 rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm font-medium text-black/70 hover:bg-black/5"
           >
             Ok
           </button>
@@ -177,13 +202,14 @@ export default function NovoPedidoPopup({ soundEnabled }: Props) {
               setCurrent(null);
               router.push("/dashboard/pedidos");
             }}
-            className={cn(
-              "rounded-2xl px-4 py-2.5 text-sm font-semibold text-white",
-              "bg-[#E83A1C] hover:brightness-95"
-            )}
+            className="rounded-2xl px-4 py-3 text-sm font-semibold text-white bg-[#E83A1C] hover:brightness-95"
           >
             Ver pedido
           </button>
+        </div>
+
+        <div className="mt-3 text-center text-xs text-black/45">
+          Dica: você pode clicar fora para fechar.
         </div>
       </div>
     </div>
