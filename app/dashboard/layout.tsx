@@ -1,9 +1,8 @@
-
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import Image from "next/image"; // ✅ add
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
@@ -12,13 +11,16 @@ import {
   Users,
   ReceiptText,
   Settings,
-  ChevronLeft,
-  ChevronRight,
   LogOut,
   Tag,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import toast, { Toaster } from "react-hot-toast";
 import { supabaseClient } from "@/lib/supabase/client";
+
+// ✅ popup global
+import NovoPedidoPopup from "@/app/dashboard/_components/NovoPedidoPopup";
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -31,11 +33,25 @@ type NavItem = {
   group?: string;
 };
 
+type UsuarioConfigRow = {
+  usuario_id: string;
+  som_novo_pedido: boolean;
+};
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [collapsed, setCollapsed] = useState(false);
+
+  const [collapsed] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+
+  // ✅ som config
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  const [soundLoading, setSoundLoading] = useState<boolean>(true);
+
+  // ✅ unlock de áudio (primeira interação do user)
+  const audioUnlockRef = useRef<HTMLAudioElement | null>(null);
+  const [audioUnlocked, setAudioUnlocked] = useState(false);
 
   const items = useMemo<NavItem[]>(
     () => [
@@ -44,7 +60,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       { label: "Cadastrar produto", href: "/dashboard/produtos/novo", icon: <PlusCircle size={18} />, group: "Produtos" },
       { label: "Criar Categorias", href: "/dashboard/produtos/categorias", icon: <Tag size={18} />, group: "Produtos" },
       { label: "Lista de produtos", href: "/dashboard/produtos", icon: <List size={18} />, group: "Produtos" },
-      
 
       { label: "Clientes", href: "/dashboard/clientes", icon: <Users size={18} />, group: "Gestão" },
       { label: "Pedidos", href: "/dashboard/pedidos", icon: <ReceiptText size={18} />, group: "Gestão" },
@@ -62,6 +77,104 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
     return [...groups.entries()];
   }, [items]);
+
+  useEffect(() => {
+    // prepara áudio
+    audioUnlockRef.current = new Audio("/sound/money.mp3");
+    audioUnlockRef.current.preload = "auto";
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadUserConfig() {
+      try {
+        setSoundLoading(true);
+
+        const { data: userData, error: userErr } = await supabaseClient.auth.getUser();
+        if (userErr || !userData.user) {
+          setSoundEnabled(true);
+          return;
+        }
+
+        const userId = userData.user.id;
+
+        // tenta pegar config existente
+        const { data, error } = await supabaseClient
+          .from("usuario_config")
+          .select("usuario_id, som_novo_pedido")
+          .eq("usuario_id", userId)
+          .maybeSingle<UsuarioConfigRow>();
+
+        if (error) throw error;
+
+        // se não existir, cria default true
+        if (!data) {
+          const { data: ins, error: insErr } = await supabaseClient
+            .from("usuario_config")
+            .insert({ usuario_id: userId, som_novo_pedido: true })
+            .select("usuario_id, som_novo_pedido")
+            .maybeSingle<UsuarioConfigRow>();
+
+          if (insErr) throw insErr;
+
+          if (mounted) setSoundEnabled(Boolean(ins?.som_novo_pedido ?? true));
+          return;
+        }
+
+        if (mounted) setSoundEnabled(Boolean(data.som_novo_pedido));
+      } catch (err) {
+        console.error(err);
+        // fallback seguro: liga som
+        if (mounted) setSoundEnabled(true);
+      } finally {
+        if (mounted) setSoundLoading(false);
+      }
+    }
+
+    loadUserConfig();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  async function persistSoundEnabled(next: boolean) {
+    const { data: userData } = await supabaseClient.auth.getUser();
+    const user = userData.user;
+    if (!user) return;
+
+    // update (a linha deve existir, mas mesmo se não existir, tenta criar)
+    const { error } = await supabaseClient
+      .from("usuario_config")
+      .upsert({ usuario_id: user.id, som_novo_pedido: next }, { onConflict: "usuario_id" });
+
+    if (error) {
+      console.error(error);
+      toast.error("Não foi possível salvar o som. Tente novamente.");
+    }
+  }
+
+  function unlockAudioOnce() {
+    if (audioUnlocked) return;
+    const a = audioUnlockRef.current;
+    if (!a) return;
+
+    // tentativa de “desbloquear” autoplay (funciona na maioria dos casos)
+    a.volume = 0;
+    a.currentTime = 0;
+
+    a.play()
+      .then(() => {
+        a.pause();
+        a.volume = 1;
+        setAudioUnlocked(true);
+      })
+      .catch(() => {
+        // se falhar, tudo bem — o usuário já clicou, normalmente o próximo play funciona
+        setAudioUnlocked(true);
+      });
+  }
 
   async function handleLogout() {
     if (loggingOut) return;
@@ -83,8 +196,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="min-h-screen bg-white text-[#0f172a]">
+    <div className="min-h-screen bg-white text-[#0f172a]" onPointerDown={unlockAudioOnce}>
       <Toaster position="top-right" />
+
+      {/* ✅ POPUP GLOBAL em qualquer rota do dashboard */}
+      <NovoPedidoPopup soundEnabled={soundEnabled} />
+
       <div className="flex min-h-screen">
         {/* SIDEBAR */}
         <aside
@@ -98,13 +215,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="flex items-center justify-between gap-3 px-4 py-4">
               <div className="flex items-center gap-3">
                 <div className="relative grid h-10 w-10 place-items-center overflow-hidden rounded-2xl border border-black/10 bg-white">
-                  <Image
-                    src="/logo.svg"
-                    alt="Logo Pneu Forte"
-                    fill
-                    className="object-contain p-1"
-                    priority
-                  />
+                  <Image src="/logo.svg" alt="Logo Pneu Forte" fill className="object-contain p-1" priority />
                 </div>
 
                 {!collapsed && (
@@ -114,8 +225,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   </div>
                 )}
               </div>
+            </div>
 
-             </div>
             {/* Nav */}
             <nav className="flex-1 overflow-auto px-3 pb-4">
               <div className="space-y-4">
@@ -184,11 +295,34 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
 
               <div className="flex items-center gap-2">
+                {/* ✅ toggle do som */}
+                <button
+                  type="button"
+                  disabled={soundLoading}
+                  onClick={async () => {
+                    const next = !soundEnabled;
+                    setSoundEnabled(next);
+                    await persistSoundEnabled(next);
+                  }}
+                  className={cn(
+                    "inline-flex items-center gap-2 rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm hover:bg-black/5",
+                    "disabled:cursor-not-allowed disabled:opacity-60"
+                  )}
+                  title="Som de novo pedido"
+                >
+                  {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                  <span className="hidden sm:inline">Som</span>
+                </button>
+
                 <button className="rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm hover:bg-black/5">
                   Exportar
                 </button>
-                <button className="rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm hover:bg-black/5">
-                  Novo pedido
+
+                <button
+                  className="rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm hover:bg-black/5"
+                  onClick={() => router.push("/dashboard/pedidos")}
+                >
+                  Pedidos
                 </button>
               </div>
             </div>
