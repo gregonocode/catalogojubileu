@@ -35,19 +35,36 @@ function formatDateShortBR(iso: string) {
 }
 
 // Gera UUID v4 no browser (sem libs)
-function uuidv4() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
-  // fallback
-  const buf = new Uint8Array(16);
-  crypto.getRandomValues(buf);
-  // eslint-disable-next-line no-bitwise
-  buf[6] = (buf[6] & 0x0f) | 0x40;
-  // eslint-disable-next-line no-bitwise
-  buf[8] = (buf[8] & 0x3f) | 0x80;
-  const toHex = (n: number) => n.toString(16).padStart(2, "0");
-  const b = Array.from(buf, toHex).join("");
-  return `${b.slice(0, 8)}-${b.slice(8, 12)}-${b.slice(12, 16)}-${b.slice(16, 20)}-${b.slice(20)}`;
+function uuidv4(): string {
+  const c = globalThis.crypto;
+
+  // browsers modernos
+  if (c && "randomUUID" in c && typeof c.randomUUID === "function") {
+    return c.randomUUID();
+  }
+
+  // fallback com getRandomValues (ainda sem any)
+  if (c && "getRandomValues" in c && typeof c.getRandomValues === "function") {
+    const buf = new Uint8Array(16);
+    c.getRandomValues(buf);
+
+    // v4 + variant
+    buf[6] = (buf[6] & 0x0f) | 0x40;
+    buf[8] = (buf[8] & 0x3f) | 0x80;
+
+    const toHex = (n: number) => n.toString(16).padStart(2, "0");
+    const b = Array.from(buf, toHex).join("");
+    return `${b.slice(0, 8)}-${b.slice(8, 12)}-${b.slice(12, 16)}-${b.slice(16, 20)}-${b.slice(20)}`;
+  }
+
+  // último fallback (não-cripto) — só pra não quebrar em ambientes estranhos
+  return `xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`.replace(/[xy]/g, (ch) => {
+    const r = Math.floor(Math.random() * 16);
+    const v = ch === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }
+
 
 type AddForm = {
   nome: string;
