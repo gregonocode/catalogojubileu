@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Pneu Forte",
     short_name: "Pneu Forte",
     description: "Distribuidora Pneu Forte",
-    start_url: "/",
+    start_url: "/c/pneu-forte",
     scope: "/",
     display: "standalone",
     background_color: "#ffffff",
