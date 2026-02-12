@@ -1,11 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { TrendingUp, Users, ReceiptText, ArrowUpRight, ChevronDown } from "lucide-react";
+import { TrendingUp, Users, ReceiptText, ChevronDown } from "lucide-react";
 import { supabaseClient } from "@/lib/supabase/client";
 import toast from "react-hot-toast";
-
-const TZ = "America/Sao_Paulo";
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -79,28 +77,6 @@ function toIsoForSupabase(d: Date) {
   return d.toISOString();
 }
 
-function ymdInTz(date: Date, timeZone: string) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
-
-  const y = parts.find((p) => p.type === "year")?.value ?? "0000";
-  const m = parts.find((p) => p.type === "month")?.value ?? "00";
-  const d = parts.find((p) => p.type === "day")?.value ?? "00";
-  return `${y}-${m}-${d}`; // yyyy-mm-dd
-}
-
-function labelInTz(date: Date, timeZone: string) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    timeZone,
-    day: "2-digit",
-    month: "2-digit",
-  }).format(date); // dd/mm
-}
-
 function getPeriodoRange(periodo: PeriodoFiltro) {
   const now = new Date();
   const todayStart = startOfDayLocal(now);
@@ -140,7 +116,12 @@ function statusBadgeClass(status: PedidoStatus) {
   return "bg-black/5 text-black ring-black/10"; // rascunho
 }
 
-type SerieDia = { key: string; label: string; total: number };
+type StatusResumo = {
+  aprovado: number;
+  pendente: number;
+  cancelado: number;
+  total: number;
+};
 
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
@@ -155,8 +136,7 @@ export default function DashboardPage() {
 
   const [periodo, setPeriodo] = useState<PeriodoFiltro>("semana");
 
-  const [vendasAprovadas, setVendasAprovadas] = useState(0);
-  const [serieAprovadas, setSerieAprovadas] = useState<SerieDia[]>([]);
+  const [vendasPeriodo, setVendasPeriodo] = useState<Array<{ status: string; total: number }>>([]);
 
   const [pedidosRecentes, setPedidosRecentes] = useState<PedidoRecente[]>([]);
   const [mapaClientes, setMapaClientes] = useState<Map<string, Cliente>>(new Map());
@@ -168,9 +148,27 @@ export default function DashboardPage() {
     return "Todo período";
   }, [periodo]);
 
-  const maxSerie = useMemo(() => {
-    return Math.max(1, ...serieAprovadas.map((x) => x.total));
-  }, [serieAprovadas]);
+  const resumoStatus = useMemo<StatusResumo>(() => {
+    const sum = { aprovado: 0, pendente: 0, cancelado: 0, total: 0 };
+
+    for (const r of vendasPeriodo) {
+      const st = r.status;
+      const val = Number(r.total) || 0;
+
+      if (st === "aprovado") sum.aprovado += val;
+      else if (st === "enviado_whatsapp" || st === "rascunho") sum.pendente += val;
+      else if (st === "cancelado") sum.cancelado += val;
+
+      sum.total += val;
+    }
+
+    return sum;
+  }, [vendasPeriodo]);
+
+  function pct(part: number) {
+    if (resumoStatus.total <= 0) return 0;
+    return (part / resumoStatus.total) * 100;
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -211,6 +209,17 @@ export default function DashboardPage() {
         const fromIso = range.from ? toIsoForSupabase(range.from) : null;
         const toIso = range.to ? toIsoForSupabase(range.to) : null;
 
+        let vendasQuery = supabaseClient
+          .from("pedidos")
+          .select("status, total")
+          .eq("empresa_id", empresaId);
+
+        if (fromIso) vendasQuery = vendasQuery.gte("criado_em", fromIso);
+        if (toIso) vendasQuery = vendasQuery.lt("criado_em", toIso);
+
+        const { data: vendasRows, error: vendasErr } = await vendasQuery;
+        if (vendasErr) throw vendasErr;
+
         // contadores + recentes em paralelo
         const [
           produtosAtivosRes,
@@ -219,7 +228,6 @@ export default function DashboardPage() {
           pendentesRes,
           pedidosRecentesRes,
           clientesIdsRes,
-          aprovadosPeriodoRes,
         ] = await Promise.all([
           supabaseClient
             .from("produtos")
@@ -254,20 +262,6 @@ export default function DashboardPage() {
             .from("pedidos")
             .select("cliente_usuario_id")
             .eq("empresa_id", empresaId),
-
-          // pedidos aprovados no período (para soma + gráfico)
-          (() => {
-            let q = supabaseClient
-              .from("pedidos")
-              .select("id, total, criado_em, status")
-              .eq("empresa_id", empresaId)
-              .eq("status", "aprovado");
-
-            if (fromIso) q = q.gte("criado_em", fromIso);
-            if (toIso) q = q.lt("criado_em", toIso);
-
-            return q;
-          })(),
         ]);
 
         if (!mounted) return;
@@ -306,46 +300,12 @@ export default function DashboardPage() {
           setMapaClientes(new Map());
         }
 
-        // vendas aprovadas no período + série (por dia)
-        const aprovados = (aprovadosPeriodoRes.data ?? []) as Array<{
-          id: string;
-          total: number;
-          criado_em: string;
-          status: "aprovado";
-        }>;
-
-        const soma = aprovados.reduce((acc, p) => acc + (Number(p.total) || 0), 0);
-        setVendasAprovadas(soma);
-
-        // construir série (hoje/semana/mes) ou "total" -> usamos últimos 14 dias pra não ficar gigante
-        const shouldUseRange =
-          periodo === "hoje" || periodo === "semana" || periodo === "mes";
-
-        const now = new Date();
-        const seriesFrom = shouldUseRange
-          ? (range.from ?? startOfDayLocal(addDaysLocal(now, -13)))
-          : startOfDayLocal(addDaysLocal(now, -13));
-        const seriesTo = shouldUseRange
-          ? (range.to ?? startOfDayLocal(addDaysLocal(now, 1)))
-          : startOfDayLocal(addDaysLocal(now, 1));
-
-        const days: SerieDia[] = [];
-        for (let d = startOfDayLocal(seriesFrom); d < seriesTo; d = addDaysLocal(d, 1)) {
-          const key = ymdInTz(d, TZ);
-          days.push({ key, label: labelInTz(d, TZ), total: 0 });
-        }
-
-        const index = new Map<string, number>();
-        days.forEach((x, i) => index.set(x.key, i));
-
-        aprovados.forEach((p) => {
-          const dt = new Date(p.criado_em);
-          const k = ymdInTz(dt, TZ); // dia em São Paulo
-          const i = index.get(k);
-          if (typeof i === "number") days[i]!.total += Number(p.total) || 0;
-        });
-
-        setSerieAprovadas(days);
+        setVendasPeriodo(
+          (vendasRows ?? []).map((r) => ({
+            status: String(r.status),
+            total: Number(r.total) || 0,
+          }))
+        );
       } catch (err: unknown) {
         console.error(err);
         toast.error("Erro ao carregar dados do dashboard.");
@@ -416,9 +376,9 @@ export default function DashboardPage() {
       {/* cards principais */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Card
-          title={`Vendas (${periodoLabel})`}
-          value={loading ? "—" : formatBRL(vendasAprovadas)}
-          subtitle="Somente pedidos aprovados"
+          title="Vendas (aprovadas)"
+          value={loading ? "—" : formatBRL(resumoStatus.aprovado)}
+          subtitle="Soma dos pedidos aprovados no período"
           icon={<TrendingUp size={18} />}
         />
         <Card
@@ -435,57 +395,79 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* gráfico funcional + resumo */}
+      {/* resumo por status + resumo */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2 rounded-3xl border border-black/10 bg-white p-5 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]">
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-semibold text-black">Atividade</div>
-              <div className="text-xs text-black/55">
-                Vendas aprovadas por dia ({periodo !== "total" ? periodoLabel : "últimos 14 dias"})
+              <div className="text-sm font-semibold text-black">Resumo por Status</div>
+              <div className="mt-1 text-xs text-black/55">
+                Distribuição do faturamento por status do pedido.
               </div>
             </div>
 
-            <button
-              type="button"
-              className="inline-flex items-center gap-2 rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm hover:bg-black/5"
-            >
-              Detalhes <ArrowUpRight size={16} />
-            </button>
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-black/10 bg-black/5">
+              <ReceiptText className="h-5 w-5 text-black/70" />
+            </div>
           </div>
 
-          <div className="mt-4 rounded-2xl border border-black/10 bg-white p-4">
-            {loading ? (
-              <div className="h-[220px] w-full rounded-xl bg-black/5 animate-pulse" />
-            ) : (
-              <div className="h-[220px]">
-                {serieAprovadas.every((x) => x.total === 0) ? (
-                  <div className="grid h-full place-items-center rounded-xl border border-black/10 bg-black/5 text-sm text-black/55">
-                    Sem vendas aprovadas no período
-                  </div>
-                ) : (
-                  <div className="flex h-full items-end gap-2">
-                    {serieAprovadas.map((d) => {
-                      const pct = Math.max(3, Math.round((d.total / maxSerie) * 100)); // %
-                      return (
-                        <div key={d.key} className="flex min-w-0 flex-1 flex-col items-center gap-2">
-                          {/* este wrapper tem altura fixa -> % funciona */}
-                          <div className="flex h-[170px] w-full items-end">
-                            <div
-                              className="w-full rounded-xl border border-black/10 bg-black/5"
-                              style={{ height: `${pct}%` }}
-                              title={`${d.label} • ${formatBRL(d.total)}`}
-                            />
-                          </div>
-
-                          <div className="text-[11px] text-black/45">{d.label}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+          <div className="mt-6 space-y-4">
+            <div className="flex items-center gap-4">
+              <div className="w-full">
+                <div className="mb-2 flex items-center justify-between text-sm">
+                  <span className="font-semibold text-black">Aprovados</span>
+                  <span className="text-black/60">
+                    {pct(resumoStatus.aprovado).toFixed(1)}% • {formatBRL(resumoStatus.aprovado)}
+                  </span>
+                </div>
+                <div className="h-2.5 w-full rounded-full bg-black/5">
+                  <div
+                    className="h-2.5 rounded-full bg-emerald-600 transition-[width]"
+                    style={{ width: `${pct(resumoStatus.aprovado)}%` }}
+                  />
+                </div>
               </div>
-            )}
+            </div>
+
+            <div className="flex items-center gap-4">
+              <div className="w-full">
+                <div className="mb-2 flex items-center justify-between text-sm">
+                  <span className="font-semibold text-black">Pendentes</span>
+                  <span className="text-black/60">
+                    {pct(resumoStatus.pendente).toFixed(1)}% • {formatBRL(resumoStatus.pendente)}
+                  </span>
+                </div>
+                <div className="h-2.5 w-full rounded-full bg-black/5">
+                  <div
+                    className="h-2.5 rounded-full bg-blue-600 transition-[width]"
+                    style={{ width: `${pct(resumoStatus.pendente)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <div className="w-full">
+                <div className="mb-2 flex items-center justify-between text-sm">
+                  <span className="font-semibold text-black">Cancelados</span>
+                  <span className="text-black/60">
+                    {pct(resumoStatus.cancelado).toFixed(1)}% • {formatBRL(resumoStatus.cancelado)}
+                  </span>
+                </div>
+                <div className="h-2.5 w-full rounded-full bg-black/5">
+                  <div
+                    className="h-2.5 rounded-full bg-amber-600 transition-[width]"
+                    style={{ width: `${pct(resumoStatus.cancelado)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {!loading && resumoStatus.total === 0 ? (
+              <div className="mt-6 rounded-2xl border border-black/10 bg-black/5 p-4 text-sm text-black/60">
+                Nenhuma venda encontrada para este período.
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -498,7 +480,7 @@ export default function DashboardPage() {
               { k: "Categorias", v: loading ? "—" : String(categorias) },
               { k: "Produtos ativos", v: loading ? "—" : String(produtosAtivos) },
               { k: "Pedidos pendentes", v: loading ? "—" : String(pedidosPendentes) },
-              { k: `Vendas (${periodoLabel})`, v: loading ? "—" : formatBRL(vendasAprovadas) },
+              { k: `Vendas (${periodoLabel})`, v: loading ? "—" : formatBRL(resumoStatus.aprovado) },
             ].map((row) => (
               <div
                 key={row.k}
