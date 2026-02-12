@@ -400,23 +400,21 @@ export default function DashboardClientesPage() {
           if (error) throw error;
           toast.success("Contato atualizado.");
         } else {
-         // usuário logado (tabela clientes)
-const { data: updated, error: upErr } = await supabaseClient
-  .from("clientes")
-  .update(payload) // { nome, telefone }
-  .eq("usuario_id", editing.id)
-  .select("usuario_id, nome, telefone")
-  .maybeSingle();
+          // usuário logado (tabela clientes)
+          const { data: updatedRows, error: upErr } = await supabaseClient
+            .from("clientes")
+            .update(payload) // { nome, telefone }
+            .eq("usuario_id", editing.id)
+            .select("usuario_id, nome, telefone"); // sem maybeSingle
 
-if (upErr) throw upErr;
+          if (upErr) throw upErr;
 
-// Se não retornou nada, normalmente é RLS bloqueando o UPDATE
-if (!updated) {
-  throw new Error("RLS bloqueou o UPDATE em clientes (owner não tem permissão).");
-}
+          const updated = updatedRows?.[0] ?? null;
+          if (!updated) {
+            throw new Error("Sem permissão para atualizar este cliente (RLS).");
+          }
 
-toast.success("Usuário atualizado.");
-
+          toast.success("Usuário atualizado.");
         }
       }
 
