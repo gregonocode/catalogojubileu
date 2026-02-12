@@ -1,8 +1,9 @@
 {
-  "name": "Catálogo Pneu Forte",
-  "short_name": "Catálogo",
-  "description": "Catálogo online para pedidos via WhatsApp.",
+  "name": "Pneu Forte",
+  "short_name": "Pneu Forte",
+  "description": "Distribuidora Pneu Forte",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#EB3410",
