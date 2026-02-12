@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabaseClient } from "@/lib/supabase/client";
 
@@ -27,6 +27,8 @@ export default function NovoPedidoPopup({ soundEnabled }: Props) {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState<NotificacaoRow | null>(null);
 
+  const subscribedRef = useRef(false);
+
   const audio = useMemo(() => {
     if (typeof window === "undefined") return null;
     const a = new Audio("/sound/money.mp3");
@@ -46,22 +48,60 @@ export default function NovoPedidoPopup({ soundEnabled }: Props) {
     await supabaseClient.from("notificacoes").update({ lida: true }).eq("id", notifId);
   }
 
+  async function obterEmpresaDoDono(userId: string) {
+    const { data, error } = await supabaseClient
+      .from("empresas")
+      .select("id")
+      .eq("dono_usuario_id", userId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data?.id ?? null;
+  }
+
+  async function buscarUltimaNaoLida(empresaId: string) {
+    const { data, error } = await supabaseClient
+      .from("notificacoes")
+      .select("id, empresa_id, pedido_id, tipo, lida, criado_em")
+      .eq("empresa_id", empresaId)
+      .eq("tipo", "novo_pedido")
+      .eq("lida", false)
+      .order("criado_em", { ascending: false })
+      .limit(1);
+
+    if (error) throw error;
+    return (data?.[0] as NotificacaoRow | undefined) ?? null;
+  }
+
+  function abrirPopup(n: NotificacaoRow) {
+    setCurrent(n);
+    setOpen(true);
+    tocarSom();
+  }
+
   useEffect(() => {
     let cancelled = false;
     let channel: ReturnType<typeof supabaseClient.channel> | null = null;
 
-    async function start() {
-      const { data: userData } = await supabaseClient.auth.getUser();
-      const user = userData.user;
+    async function init() {
+      // 1) garante sessão
+      const { data: sess } = await supabaseClient.auth.getSession();
+      const user = sess.session?.user;
       if (!user) return;
 
-      const { data: emp } = await supabaseClient
-        .from("empresas")
-        .select("id")
-        .eq("dono_usuario_id", user.id)
-        .maybeSingle();
+      // 2) acha empresa do dono
+      const empresaId = await obterEmpresaDoDono(user.id);
+      if (!empresaId) return;
 
-      if (!emp?.id) return;
+      // 3) se já existe notificação não lida (caso criou antes do subscribe), mostra
+      const pendente = await buscarUltimaNaoLida(empresaId);
+      if (!cancelled && pendente) {
+        abrirPopup(pendente);
+      }
+
+      // 4) subscribe realtime (só 1 vez)
+      if (subscribedRef.current) return;
+      subscribedRef.current = true;
 
       channel = supabaseClient
         .channel("rt-notificacoes-novo-pedido")
@@ -71,27 +111,32 @@ export default function NovoPedidoPopup({ soundEnabled }: Props) {
             event: "INSERT",
             schema: "public",
             table: "notificacoes",
-            filter: `empresa_id=eq.${emp.id}`,
+            filter: `empresa_id=eq.${empresaId}`,
           },
           (payload) => {
             if (cancelled) return;
-            const n = payload.new as NotificacaoRow;
 
+            const n = payload.new as NotificacaoRow;
             if (n.tipo !== "novo_pedido") return;
             if (n.lida) return;
 
-            setCurrent(n);
-            setOpen(true);
-            tocarSom();
+            abrirPopup(n);
           }
         )
         .subscribe();
     }
 
-    start();
+    // tenta iniciar já
+    init();
+
+    // e também reinicia quando auth carregar/trocar (evita o caso getSession ainda vazio)
+    const { data: sub } = supabaseClient.auth.onAuthStateChange(() => {
+      init();
+    });
 
     return () => {
       cancelled = true;
+      sub.subscription.unsubscribe();
       if (channel) supabaseClient.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -103,8 +148,12 @@ export default function NovoPedidoPopup({ soundEnabled }: Props) {
     <div className="fixed bottom-5 right-5 z-[90] w-[92vw] max-w-sm">
       <div className="rounded-3xl border border-black/10 bg-white p-4 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.35)]">
         <div className="text-sm font-semibold text-black">Você tem um novo pedido</div>
+
         <div className="mt-1 text-xs text-black/60">
-          Pedido: <span className="font-semibold">#{current.pedido_id.slice(0, 8).toUpperCase()}</span>
+          Pedido:{" "}
+          <span className="font-semibold">
+            #{current.pedido_id.slice(0, 8).toUpperCase()}
+          </span>
         </div>
 
         <div className="mt-3 flex items-center gap-2">
