@@ -615,7 +615,7 @@ export default function DashboardClientesPage() {
         title={modalMode === "create" ? "Adicionar contato" : "Editar cliente"}
         subtitle={
           modalMode === "create"
-            ? "Isso cria um contato manual (não precisa login)."
+            ? "Isso cria um contato manual"
             : editing?.kind === "usuario"
             ? "Editando um usuário logado (tabela clientes)."
             : "Editando um contato manual (tabela clientes_contatos)."

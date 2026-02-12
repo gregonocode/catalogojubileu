@@ -262,6 +262,15 @@ export default function CatalogoPage() {
       ? (pedidoData[0] as { pedido_id: string }).pedido_id
       : null;
 
+  // ✅ 1) popup avisando que enviou
+  toast.success(
+    "Pedido enviado! A empresa já recebeu seu pedido. Aguarde a entrega ou combine pelo WhatsApp.",
+    { duration: 4500 }
+  );
+
+  // ✅ 2) limpa carrinho (só depois de confirmar que o RPC deu certo)
+  setQtd({});
+
   // monta mensagem do WhatsApp
   const lines: string[] = [];
   lines.push(`Olá! Quero fazer um pedido na ${empresa.nome}.`);
@@ -282,7 +291,11 @@ export default function CatalogoPage() {
   lines.push("Pode me atender, por favor?");
 
   const url = buildWhatsappUrl(empresa.whatsapp, lines.join("\n"));
-  window.open(url, "_blank", "noopener,noreferrer");
+
+  // ✅ garante que o popup aparece antes de abrir o WhatsApp
+  setTimeout(() => {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }, 150);
 }
 
 
