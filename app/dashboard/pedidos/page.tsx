@@ -245,8 +245,18 @@ export default function PedidosPage() {
   }
 
   async function aprovarPedido(pedidoId: string) {
-    toast("Aprovar: vamos criar o RPC na próxima etapa.", { icon: "🛠️" });
-    void pedidoId;
+    try {
+      const { error } = await supabaseClient.rpc("rpc_aprovar_pedido", {
+        p_pedido_id: pedidoId,
+      });
+      if (error) throw error;
+
+      toast.success("Pedido aprovado! Estoque atualizado.");
+      await loadPedidos();
+    } catch (err) {
+      console.error(err);
+      toast.error("Não foi possível aprovar o pedido.");
+    }
   }
 
   async function cancelarPedido(pedidoId: string) {
