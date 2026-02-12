@@ -5,6 +5,8 @@ import { TrendingUp, Users, ReceiptText, ArrowUpRight, ChevronDown } from "lucid
 import { supabaseClient } from "@/lib/supabase/client";
 import toast from "react-hot-toast";
 
+const TZ = "America/Sao_Paulo";
+
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
@@ -77,6 +79,28 @@ function toIsoForSupabase(d: Date) {
   return d.toISOString();
 }
 
+function ymdInTz(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const y = parts.find((p) => p.type === "year")?.value ?? "0000";
+  const m = parts.find((p) => p.type === "month")?.value ?? "00";
+  const d = parts.find((p) => p.type === "day")?.value ?? "00";
+  return `${y}-${m}-${d}`; // yyyy-mm-dd
+}
+
+function labelInTz(date: Date, timeZone: string) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone,
+    day: "2-digit",
+    month: "2-digit",
+  }).format(date); // dd/mm
+}
+
 function getPeriodoRange(periodo: PeriodoFiltro) {
   const now = new Date();
   const todayStart = startOfDayLocal(now);
@@ -117,19 +141,6 @@ function statusBadgeClass(status: PedidoStatus) {
 }
 
 type SerieDia = { key: string; label: string; total: number };
-
-function fmtDiaLabel(d: Date) {
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  return `${dd}/${mm}`;
-}
-
-function diaKey(d: Date) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
 
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
@@ -320,7 +331,8 @@ export default function DashboardPage() {
 
         const days: SerieDia[] = [];
         for (let d = startOfDayLocal(seriesFrom); d < seriesTo; d = addDaysLocal(d, 1)) {
-          days.push({ key: diaKey(d), label: fmtDiaLabel(d), total: 0 });
+          const key = ymdInTz(d, TZ);
+          days.push({ key, label: labelInTz(d, TZ), total: 0 });
         }
 
         const index = new Map<string, number>();
@@ -328,7 +340,7 @@ export default function DashboardPage() {
 
         aprovados.forEach((p) => {
           const dt = new Date(p.criado_em);
-          const k = diaKey(new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()));
+          const k = ymdInTz(dt, TZ); // dia em São Paulo
           const i = index.get(k);
           if (typeof i === "number") days[i]!.total += Number(p.total) || 0;
         });
