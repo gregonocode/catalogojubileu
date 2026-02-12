@@ -216,41 +216,75 @@ export default function CatalogoPage() {
     router.push(`/c/${String(slug)}/perfil`);
   }
 
-  async function finalizarWhatsApp() {
-    if (!empresa) return;
+ async function finalizarWhatsApp() {
+  if (!empresa) return;
 
-    const { data } = await supabaseClient.auth.getSession();
-    const authed = Boolean(data.session?.user);
+  const { data } = await supabaseClient.auth.getSession();
+  const authed = Boolean(data.session?.user);
 
-    if (!authed) {
-      toast.error("Você precisa criar conta ou fazer login para finalizar o pedido.");
-      setAuthOpen(true);
-      return;
-    }
-
-    if (itensCarrinho.length === 0) {
-      toast.error("Escolha pelo menos 1 item para finalizar.");
-      return;
-    }
-
-    const lines: string[] = [];
-    lines.push(`Olá! Quero fazer um pedido na ${empresa.nome}.`);
-    lines.push("");
-    lines.push("🛒 Itens:");
-
-    itensCarrinho.forEach((it) => {
-      const preco = Number(it.produto.preco) || 0;
-      lines.push(`- ${it.quantidade}x ${it.produto.nome} (${formatBRL(preco)}) = ${formatBRL(it.subtotal)}`);
-    });
-
-    lines.push("");
-    lines.push(`Total: ${formatBRL(total)}`);
-    lines.push("");
-    lines.push("Pode me atender, por favor?");
-
-    const url = buildWhatsappUrl(empresa.whatsapp, lines.join("\n"));
-    window.open(url, "_blank", "noopener,noreferrer");
+  if (!authed) {
+    toast.error("Você precisa criar conta ou fazer login para finalizar o pedido.");
+    setAuthOpen(true);
+    return;
   }
+
+  if (itensCarrinho.length === 0) {
+    toast.error("Escolha pelo menos 1 item para finalizar.");
+    return;
+  }
+
+  // monta payload pro RPC
+  const itensPayload = itensCarrinho.map((it) => ({
+    produto_id: it.produto.id,
+    quantidade: it.quantidade,
+  }));
+
+  // cria pedido pendente + reserva estoque
+  const { data: pedidoData, error: pedidoErr } = await supabaseClient.rpc(
+    "rpc_criar_pedido_pendente",
+    {
+      p_empresa_slug: String(slug),
+      p_itens: itensPayload,
+    }
+  );
+
+  if (pedidoErr) {
+    const msg =
+      pedidoErr.message.includes("SEM_ESTOQUE")
+        ? "Um dos produtos ficou sem estoque disponível. Ajuste as quantidades e tente novamente."
+        : "Não foi possível criar seu pedido. Tente novamente.";
+    toast.error(msg);
+    return;
+  }
+
+  const pedidoId =
+    Array.isArray(pedidoData) && pedidoData.length > 0
+      ? (pedidoData[0] as { pedido_id: string }).pedido_id
+      : null;
+
+  // monta mensagem do WhatsApp
+  const lines: string[] = [];
+  lines.push(`Olá! Quero fazer um pedido na ${empresa.nome}.`);
+  if (pedidoId) lines.push(`Pedido: ${pedidoId}`);
+  lines.push("");
+  lines.push("🛒 Itens:");
+
+  itensCarrinho.forEach((it) => {
+    const preco = Number(it.produto.preco) || 0;
+    lines.push(
+      `- ${it.quantidade}x ${it.produto.nome} (${formatBRL(preco)}) = ${formatBRL(it.subtotal)}`
+    );
+  });
+
+  lines.push("");
+  lines.push(`Total: ${formatBRL(total)}`);
+  lines.push("");
+  lines.push("Pode me atender, por favor?");
+
+  const url = buildWhatsappUrl(empresa.whatsapp, lines.join("\n"));
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
 
   if (!loading && !empresa) {
     return (
