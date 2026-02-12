@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 
 type Mode = 'signup' | 'login';
@@ -38,6 +38,15 @@ export default function ClienteAuthModal({
     senha: '',
   });
 
+  // ✅ garante que o modal respeite o defaultMode sempre que abrir
+  useEffect(() => {
+    if (open) {
+      setMode(defaultMode);
+      setMsg(null);
+      setLoading(false);
+    }
+  }, [open, defaultMode]);
+
   const supabase = useMemo(() => {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -49,59 +58,97 @@ export default function ClienteAuthModal({
 
   if (!open) return null;
 
-  async function handleSignup() {
-  setLoading(true);
-  setMsg(null);
-
-  const nome = form.nome.trim();
-  const email = form.email.trim();
-  const senha = form.senha;
-
-  if (nome.length < 2) {
-    setLoading(false);
-    setMsg("Digite seu nome.");
-    return;
-  }
-  if (!email.includes("@")) {
-    setLoading(false);
-    setMsg("Digite um e-mail válido.");
-    return;
-  }
-  if (senha.length < 6) {
-    setLoading(false);
-    setMsg("Sua senha precisa ter pelo menos 6 caracteres.");
-    return;
-  }
-
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password: senha,
-    options: {
-      data: {
-        role: "cliente",
+  async function upsertCliente(usuarioId: string, nome: string) {
+  const { data, error } = await supabase
+    .from("clientes")
+    .upsert(
+      {
+        usuario_id: usuarioId,
         nome,
       },
-    },
-  });
-
-  setLoading(false);
+      { onConflict: "usuario_id" }
+    )
+    .select("usuario_id, nome")
+    .maybeSingle();
 
   if (error) {
-    setMsg(error.message);
-    return;
+    console.error("Erro ao salvar cliente em public.clientes:", error);
+    setMsg(`Erro ao salvar seu nome: ${error.message}`);
+    return false;
   }
 
-  const loggedNow = Boolean(data.session?.user);
-
-  if (!loggedNow) {
-    // fallback caso o projeto ainda esteja com confirmação ligada
-    setMsg("Conta criada, mas falta liberar o login imediato. Desative 'Confirm email' no Supabase.");
-    return;
+  // Só pra confirmar de vez:
+  if (!data?.nome) {
+    setMsg("Conta criada, mas não consegui salvar seu nome. (RLS/policy em clientes)");
+    return false;
   }
 
-  onAuthed?.();
-  onClose();
+  return true;
 }
+
+
+  async function handleSignup() {
+    setLoading(true);
+    setMsg(null);
+
+    const nome = form.nome.trim();
+    const email = form.email.trim();
+    const senha = form.senha;
+
+    if (nome.length < 2) {
+      setLoading(false);
+      setMsg('Digite seu nome.');
+      return;
+    }
+    if (!email.includes('@')) {
+      setLoading(false);
+      setMsg('Digite um e-mail válido.');
+      return;
+    }
+    if (senha.length < 6) {
+      setLoading(false);
+      setMsg('Sua senha precisa ter pelo menos 6 caracteres.');
+      return;
+    }
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password: senha,
+      options: {
+        data: {
+          role: 'cliente',
+          nome,
+        },
+      },
+    });
+
+    if (error) {
+      setLoading(false);
+      setMsg(error.message);
+      return;
+    }
+
+    // ✅ se veio user, já salva nome na tabela clientes
+    const userId = data.user?.id ?? data.session?.user?.id ?? null;
+    if (userId) {
+      await upsertCliente(userId, nome);
+    }
+
+    const loggedNow = Boolean(data.session?.user);
+
+    setLoading(false);
+
+    if (!loggedNow) {
+      // caso você ligue confirmação no futuro
+      setMsg(
+        'Conta criada! Se não entrar automaticamente, verifique se "Confirm email" está desativado no Supabase.'
+      );
+      return;
+    }
+
+    onAuthed?.();
+    onClose();
+  }
 
   async function handleLogin() {
     setLoading(true);
@@ -121,17 +168,28 @@ export default function ClienteAuthModal({
       return;
     }
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password: senha,
     });
 
-    setLoading(false);
-
     if (error) {
+      setLoading(false);
       setMsg(error.message);
       return;
     }
+
+    // ✅ fallback: se por algum motivo não existir linha em clientes ainda,
+    // cria com nome do metadata (se tiver)
+    const userId = data.user?.id ?? null;
+    const metaNome =
+      typeof data.user?.user_metadata?.nome === 'string' ? String(data.user.user_metadata.nome).trim() : '';
+
+    if (userId && metaNome.length >= 2) {
+      await upsertCliente(userId, metaNome);
+    }
+
+    setLoading(false);
 
     onAuthed?.();
     onClose();
@@ -151,9 +209,7 @@ export default function ClienteAuthModal({
       <div className="absolute left-1/2 top-1/2 w-[92vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white p-5 shadow-xl">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-lg font-semibold">
-              {mode === 'signup' ? 'Criar conta' : 'Entrar'}
-            </div>
+            <div className="text-lg font-semibold">{mode === 'signup' ? 'Criar conta' : 'Entrar'}</div>
             <div className="text-sm text-black/60">
               {mode === 'signup'
                 ? 'É super rápido e você já pode fazer seu pedido.'
@@ -173,12 +229,12 @@ export default function ClienteAuthModal({
         <div className="mt-4 space-y-3">
           {mode === 'signup' && (
             <div>
-              <label className="text-xs font-medium text-black/70">Nome da Empresa</label>
+              <label className="text-xs font-medium text-black/70">Seu nome</label>
               <input
                 value={form.nome}
                 onChange={(e) => setForm((s) => ({ ...s, nome: e.target.value }))}
                 className="mt-1 w-full rounded-xl border border-black/10 px-3 py-2 outline-none focus:border-black/30"
-                placeholder="nome da Empresa"
+                placeholder="Ex: Jubileu"
                 autoComplete="name"
               />
             </div>
@@ -224,11 +280,7 @@ export default function ClienteAuthModal({
               'bg-[#E83A1C] hover:brightness-95'
             )}
           >
-            {loading
-              ? 'Aguarde...'
-              : mode === 'signup'
-                ? 'Criar conta'
-                : 'Entrar'}
+            {loading ? 'Aguarde...' : mode === 'signup' ? 'Criar conta' : 'Entrar'}
           </button>
 
           <button

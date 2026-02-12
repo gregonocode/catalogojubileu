@@ -267,7 +267,7 @@ export default function CatalogoPage() {
   lines.push(`Olá! Quero fazer um pedido na ${empresa.nome}.`);
   if (pedidoId) lines.push(`Pedido: ${pedidoId}`);
   lines.push("");
-  lines.push("🛒 Itens:");
+  lines.push(" Itens:");
 
   itensCarrinho.forEach((it) => {
     const preco = Number(it.produto.preco) || 0;
