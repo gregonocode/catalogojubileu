@@ -1,9 +1,10 @@
+// app/dashboard/clientes/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { supabaseClient } from "@/lib/supabase/client";
 import toast from "react-hot-toast";
-import { Plus, Search, Users } from "lucide-react";
+import { Plus, Pencil, X } from "lucide-react";
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -12,174 +13,246 @@ function cn(...classes: Array<string | false | null | undefined>) {
 type Empresa = {
   id: string;
   nome: string;
+  slug: string;
+  whatsapp: string;
 };
 
-type ClienteRow = {
-  usuario_id: string;
-  nome: string | null;
+type ClienteContatoRow = {
+  id: string;
+  empresa_id: string;
+  nome: string;
   telefone: string | null;
   criado_em: string;
+  atualizado_em: string;
 };
 
+type ModalMode = "create" | "edit";
+
+type FormState = {
+  nome: string;
+  telefone: string;
+};
+
+function formatPhoneDisplay(v: string | null) {
+  if (!v) return "—";
+  return v;
+}
+
 function formatDateShortBR(iso: string) {
-  // Ex: 12/02/26, 15:40
+  // exemplo: 12/02/26, 09:19
   const d = new Date(iso);
-  return d.toLocaleString("pt-BR", {
-    timeZone: "America/Sao_Paulo",
+  return new Intl.DateTimeFormat("pt-BR", {
     day: "2-digit",
     month: "2-digit",
     year: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  });
+  }).format(d);
 }
 
-// Gera UUID v4 no browser (sem libs)
-function uuidv4(): string {
-  const c = globalThis.crypto;
-
-  // browsers modernos
-  if (c && "randomUUID" in c && typeof c.randomUUID === "function") {
-    return c.randomUUID();
-  }
-
-  // fallback com getRandomValues (ainda sem any)
-  if (c && "getRandomValues" in c && typeof c.getRandomValues === "function") {
-    const buf = new Uint8Array(16);
-    c.getRandomValues(buf);
-
-    // v4 + variant
-    buf[6] = (buf[6] & 0x0f) | 0x40;
-    buf[8] = (buf[8] & 0x3f) | 0x80;
-
-    const toHex = (n: number) => n.toString(16).padStart(2, "0");
-    const b = Array.from(buf, toHex).join("");
-    return `${b.slice(0, 8)}-${b.slice(8, 12)}-${b.slice(12, 16)}-${b.slice(16, 20)}-${b.slice(20)}`;
-  }
-
-  // último fallback (não-cripto) — só pra não quebrar em ambientes estranhos
-  return `xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`.replace(/[xy]/g, (ch) => {
-    const r = Math.floor(Math.random() * 16);
-    const v = ch === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+function onlyDigits(s: string) {
+  return (s || "").replace(/\D/g, "");
 }
 
+function normalizePhone(v: string) {
+  // mantém só dígitos, mas você pode deixar livre se preferir
+  const dig = onlyDigits(v);
+  return dig;
+}
 
-type AddForm = {
-  nome: string;
-  telefone: string;
-};
+function Modal({
+  open,
+  mode,
+  loading,
+  title,
+  form,
+  setForm,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  mode: ModalMode;
+  loading: boolean;
+  title: string;
+  form: FormState;
+  setForm: (next: FormState) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  if (!open) return null;
 
-export default function ClientesPage() {
+  return (
+    <div className="fixed inset-0 z-[80]">
+      {/* overlay */}
+      <button
+        type="button"
+        aria-label="Fechar"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/40"
+      />
+
+      {/* modal */}
+      <div className="absolute left-1/2 top-1/2 w-[92vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-black/10 bg-white p-5 shadow-[0_30px_80px_-40px_rgba(0,0,0,0.45)]">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-lg font-semibold text-black">{title}</div>
+            <div className="mt-1 text-sm text-black/60">
+              {mode === "create"
+                ? "Cadastre um contato para sua empresa."
+                : "Edite apenas nome e telefone."}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-10 w-10 place-items-center rounded-2xl border border-black/10 bg-white hover:bg-black/5"
+            aria-label="Fechar modal"
+            title="Fechar"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="mt-5 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-black/70">Nome</label>
+            <input
+              value={form.nome}
+              onChange={(e) => setForm({ ...form, nome: e.target.value })}
+              className="mt-1 w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm outline-none focus:border-black/30"
+              placeholder="Ex: João da Oficina"
+              autoComplete="name"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-black/70">Telefone (opcional)</label>
+            <input
+              value={form.telefone}
+              onChange={(e) => setForm({ ...form, telefone: e.target.value })}
+              className="mt-1 w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm outline-none focus:border-black/30"
+              placeholder="Ex: 93999999999"
+              inputMode="tel"
+              autoComplete="tel"
+            />
+            <div className="mt-1 text-xs text-black/45">
+              Dica: pode digitar com espaços e traços, eu salvo só os números.
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={loading}
+            className={cn(
+              "w-full rounded-2xl px-4 py-2.5 text-sm font-semibold text-white transition",
+              "disabled:cursor-not-allowed disabled:opacity-60",
+              "bg-[#E83A1C] hover:brightness-95"
+            )}
+          >
+            {loading ? "Salvando..." : mode === "create" ? "Adicionar cliente" : "Salvar alterações"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function DashboardClientesPage() {
   const [loading, setLoading] = useState(true);
-  const [empresa, setEmpresa] = useState<Empresa | null>(null);
 
-  const [clientes, setClientes] = useState<ClienteRow[]>([]);
+  const [empresa, setEmpresa] = useState<Empresa | null>(null);
+  const [rows, setRows] = useState<ClienteContatoRow[]>([]);
   const [query, setQuery] = useState("");
 
   // modal
-  const [openModal, setOpenModal] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<ModalMode>("create");
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState<AddForm>({ nome: "", telefone: "" });
+  const [editing, setEditing] = useState<ClienteContatoRow | null>(null);
 
-  const clientesFiltrados = useMemo(() => {
+  const [form, setForm] = useState<FormState>({ nome: "", telefone: "" });
+
+  const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return clientes;
+    if (!q) return rows;
 
-    return clientes.filter((c) => {
-      const nome = (c.nome ?? "").toLowerCase();
-      const tel = (c.telefone ?? "").toLowerCase();
-      return nome.includes(q) || tel.includes(q) || c.usuario_id.toLowerCase().includes(q);
+    return rows.filter((c) => {
+      const nome = (c.nome || "").toLowerCase();
+      const tel = (c.telefone || "").toLowerCase();
+      return nome.includes(q) || tel.includes(q);
     });
-  }, [clientes, query]);
+  }, [rows, query]);
+
+  async function loadEmpresaAndClientes() {
+    setLoading(true);
+    try {
+      const { data: userData, error: userErr } = await supabaseClient.auth.getUser();
+      if (userErr || !userData.user) {
+        window.location.href = "/login";
+        return;
+      }
+
+      const userId = userData.user.id;
+
+      const { data: emp, error: empErr } = await supabaseClient
+        .from("empresas")
+        .select("id, nome, whatsapp, slug")
+        .eq("dono_usuario_id", userId)
+        .maybeSingle();
+
+      if (empErr) throw empErr;
+      if (!emp) {
+        setEmpresa(null);
+        setRows([]);
+        return;
+      }
+
+      setEmpresa(emp as Empresa);
+
+      const { data, error } = await supabaseClient
+        .from("clientes_contatos")
+        .select("id, empresa_id, nome, telefone, criado_em, atualizado_em")
+        .eq("empresa_id", emp.id)
+        .order("criado_em", { ascending: false });
+
+      if (error) throw error;
+
+      const typed = (data ?? []) as unknown as ClienteContatoRow[];
+      setRows(typed);
+    } catch (err) {
+      console.error(err);
+      toast.error("Erro ao carregar clientes.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    let mounted = true;
-
-    async function load() {
-      try {
-        setLoading(true);
-
-        const { data: userData, error: userErr } = await supabaseClient.auth.getUser();
-        if (userErr || !userData.user) {
-          window.location.href = "/login";
-          return;
-        }
-
-        const userId = userData.user.id;
-
-        // empresa do dono
-        const { data: emp, error: empErr } = await supabaseClient
-          .from("empresas")
-          .select("id, nome")
-          .eq("dono_usuario_id", userId)
-          .maybeSingle();
-
-        if (empErr) throw empErr;
-        if (!mounted) return;
-
-        if (!emp) {
-          setEmpresa(null);
-          setClientes([]);
-          return;
-        }
-
-        setEmpresa(emp);
-
-        // ✅ COMO "clientes" não tem empresa_id, pegamos os clientes que já fizeram pedido nessa empresa:
-        // pedidos (empresa_id) -> cliente_usuario_id -> clientes(usuario_id)
-        const { data: rows, error: cliErr } = await supabaseClient
-          .from("pedidos")
-          .select(
-            `
-            cliente_usuario_id,
-            clientes:cliente_usuario_id (
-              usuario_id,
-              nome,
-              telefone,
-              criado_em
-            )
-          `
-          )
-          .eq("empresa_id", emp.id);
-
-        if (cliErr) throw cliErr;
-
-        // normaliza e remove duplicados
-        const map = new Map<string, ClienteRow>();
-        (rows ?? []).forEach((r) => {
-          const cli = (r as unknown as { clientes: ClienteRow | null }).clientes;
-          if (!cli?.usuario_id) return;
-          map.set(cli.usuario_id, cli);
-        });
-
-        const list = Array.from(map.values()).sort((a, b) => {
-          const ta = new Date(a.criado_em).getTime();
-          const tb = new Date(b.criado_em).getTime();
-          return tb - ta;
-        });
-
-        if (!mounted) return;
-        setClientes(list);
-      } catch (err) {
-        console.error(err);
-        toast.error("Não foi possível carregar os clientes.");
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    }
-
-    load();
-
-    return () => {
-      mounted = false;
-    };
+    void loadEmpresaAndClientes();
   }, []);
 
-  async function handleAddCliente() {
-    if (!empresa) {
-      toast.error("Você precisa ter uma empresa configurada.");
+  function openCreate() {
+    setModalMode("create");
+    setEditing(null);
+    setForm({ nome: "", telefone: "" });
+    setModalOpen(true);
+  }
+
+  function openEdit(row: ClienteContatoRow) {
+    setModalMode("edit");
+    setEditing(row);
+    setForm({
+      nome: row.nome ?? "",
+      telefone: row.telefone ?? "",
+    });
+    setModalOpen(true);
+  }
+
+  async function handleSubmit() {
+    if (!empresa?.id) {
+      toast.error("Empresa não encontrada.");
       return;
     }
 
@@ -187,44 +260,58 @@ export default function ClientesPage() {
     const telefone = form.telefone.trim();
 
     if (nome.length < 2) {
-      toast.error("Digite o nome do cliente.");
+      toast.error("Digite um nome válido.");
       return;
     }
 
     setSaving(true);
     try {
-      // ⚠️ Nota importante:
-      // Aqui estamos criando um cliente "manual" na tabela clientes,
-      // mas isso NÃO cria login no Supabase Auth.
-      // Isso serve para você organizar/gerenciar clientes no dashboard.
-      const usuarioId = uuidv4();
+      if (modalMode === "create") {
+        const payload = {
+          empresa_id: empresa.id,
+          nome,
+          telefone: telefone ? normalizePhone(telefone) : null,
+        };
 
-      const { error } = await supabaseClient.from("clientes").insert({
-        usuario_id: usuarioId,
-        nome,
-        telefone: telefone.length ? telefone : null,
-      });
+        const { error } = await supabaseClient.from("clientes_contatos").insert(payload);
+        if (error) throw error;
 
-      if (error) throw error;
+        toast.success("Cliente adicionado.");
+      } else {
+        if (!editing?.id) {
+          toast.error("Cliente inválido.");
+          return;
+        }
 
-      toast.success("Cliente adicionado!");
+        const payload = {
+          nome,
+          telefone: telefone ? normalizePhone(telefone) : null,
+          atualizado_em: new Date().toISOString(),
+        };
 
-      setClientes((prev) => [
-        { usuario_id: usuarioId, nome, telefone: telefone.length ? telefone : null, criado_em: new Date().toISOString() },
-        ...prev,
-      ]);
+        const { error } = await supabaseClient
+          .from("clientes_contatos")
+          .update(payload)
+          .eq("id", editing.id)
+          .eq("empresa_id", empresa.id);
 
-      setOpenModal(false);
-      setForm({ nome: "", telefone: "" });
+        if (error) throw error;
+
+        toast.success("Cliente atualizado.");
+      }
+
+      setModalOpen(false);
+      setEditing(null);
+      await loadEmpresaAndClientes();
     } catch (err) {
       console.error(err);
-      toast.error("Não foi possível adicionar o cliente.");
+      toast.error("Não foi possível salvar o cliente.");
     } finally {
       setSaving(false);
     }
   }
 
-  // Estado: sem empresa
+  // sem empresa
   if (!loading && !empresa) {
     return (
       <div className="rounded-3xl border border-black/10 bg-white p-6 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]">
@@ -244,36 +331,40 @@ export default function ClientesPage() {
       {/* topo */}
       <div className="rounded-3xl border border-black/10 bg-white p-5 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-2xl border border-black/10 bg-black/5">
-              <Users size={18} />
+          <div>
+            <div className="text-sm text-black/60">Clientes</div>
+            <div className="mt-1 text-lg font-semibold text-black">
+              {empresa?.nome ?? "—"}
             </div>
-            <div>
-              <div className="text-sm font-semibold text-black">Clientes</div>
-              <div className="text-xs text-black/55">
-                {empresa?.nome ?? "—"} • {loading ? "Carregando..." : `${clientes.length} cliente(s)`}
-              </div>
+            <div className="mt-1 text-xs text-black/55">
+              Lista de contatos cadastrados manualmente (separado dos clientes que fazem login).
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setOpenModal(true)}
-            className="inline-flex items-center gap-2 rounded-2xl bg-[#E83A1C] px-4 py-2.5 text-sm font-semibold text-white hover:brightness-95"
-          >
-            <Plus size={18} />
-            Adicionar cliente
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={openCreate}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold text-white",
+                "bg-[#E83A1C] hover:brightness-95"
+              )}
+            >
+              <Plus size={18} /> Adicionar cliente
+            </button>
+          </div>
         </div>
 
-        {/* busca */}
-        <div className="mt-4 flex items-center gap-2 rounded-2xl border border-black/10 bg-white px-3 py-2">
-          <Search size={18} className="text-black/40" />
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm text-black/60">
+            {loading ? "Carregando..." : `${rows.length} cliente(s)`}
+          </div>
+
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar por nome, telefone ou ID…"
-            className="w-full bg-transparent text-sm outline-none"
+            placeholder="Buscar por nome ou telefone..."
+            className="w-full rounded-2xl border border-black/10 bg-white px-4 py-2.5 text-sm outline-none focus:border-black/30 sm:max-w-sm"
           />
         </div>
       </div>
@@ -284,10 +375,10 @@ export default function ClientesPage() {
           <table className="w-full text-left text-sm">
             <thead className="bg-black/5 text-xs text-black/55">
               <tr>
-                <th className="px-4 py-3">Cliente</th>
+                <th className="px-4 py-3">Nome</th>
                 <th className="px-4 py-3">Telefone</th>
-                <th className="px-4 py-3">ID</th>
-                <th className="px-4 py-3">Criado em</th>
+                <th className="px-4 py-3">Criado</th>
+                <th className="px-4 py-3 text-right">Ações</th>
               </tr>
             </thead>
 
@@ -298,103 +389,55 @@ export default function ClientesPage() {
                     Carregando...
                   </td>
                 </tr>
-              ) : clientesFiltrados.length === 0 ? (
+              ) : filtered.length === 0 ? (
                 <tr>
                   <td className="px-4 py-4 text-black/60" colSpan={4}>
                     Nenhum cliente encontrado.
                   </td>
                 </tr>
               ) : (
-                clientesFiltrados.map((c) => (
-                  <tr key={c.usuario_id} className="hover:bg-black/5">
-                    <td className="px-4 py-3 font-medium text-black">{c.nome ?? "Sem nome"}</td>
-                    <td className="px-4 py-3 text-black/70">{c.telefone ?? "—"}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-black/60">
-                      {c.usuario_id.slice(0, 8).toUpperCase()}
+                filtered.map((c) => (
+                  <tr key={c.id} className="hover:bg-black/5">
+                    <td className="px-4 py-3 font-medium text-black">{c.nome}</td>
+                    <td className="px-4 py-3 text-black/70">{formatPhoneDisplay(c.telefone)}</td>
+                    <td className="px-4 py-3 text-black/55">{formatDateShortBR(c.criado_em)}</td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(c)}
+                        className={cn(
+                          "inline-flex items-center gap-2 rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm",
+                          "hover:bg-black/5"
+                        )}
+                        title="Editar"
+                        aria-label="Editar cliente"
+                      >
+                        <Pencil size={16} />
+                        <span className="hidden sm:inline">Editar</span>
+                      </button>
                     </td>
-                    <td className="px-4 py-3 text-black/60">{formatDateShortBR(c.criado_em)}</td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
         </div>
-
-        <div className="mt-3 text-center text-xs text-black/40">
-          * Clientes listados aqui são os que já aparecem vinculados a pedidos dessa empresa.
-        </div>
       </div>
 
-      {/* modal adicionar */}
-      {openModal && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-          <button
-            type="button"
-            aria-label="Fechar"
-            onClick={() => setOpenModal(false)}
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-          />
-
-          <div className="relative w-[92vw] max-w-md rounded-3xl border border-black/10 bg-white p-5 shadow-[0_30px_90px_-40px_rgba(0,0,0,0.55)]">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-base font-semibold text-black">Adicionar cliente</div>
-                <div className="mt-1 text-sm text-black/60">Cadastro simples para gestão interna.</div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setOpenModal(false)}
-                className="rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm text-black/60 hover:bg-black/5"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="mt-4 space-y-3">
-              <div>
-                <label className="text-xs font-medium text-black/70">Nome</label>
-                <input
-                  value={form.nome}
-                  onChange={(e) => setForm((s) => ({ ...s, nome: e.target.value }))}
-                  className="mt-1 w-full rounded-2xl border border-black/10 px-3 py-2 text-sm outline-none focus:border-black/30"
-                  placeholder="Ex: Jubileu"
-                  autoComplete="name"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-medium text-black/70">Telefone (opcional)</label>
-                <input
-                  value={form.telefone}
-                  onChange={(e) => setForm((s) => ({ ...s, telefone: e.target.value }))}
-                  className="mt-1 w-full rounded-2xl border border-black/10 px-3 py-2 text-sm outline-none focus:border-black/30"
-                  placeholder="Ex: (99) 99999-9999"
-                  inputMode="tel"
-                  autoComplete="tel"
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={handleAddCliente}
-                disabled={saving}
-                className={cn(
-                  "w-full rounded-2xl px-4 py-3 text-sm font-semibold text-white",
-                  "bg-[#E83A1C] hover:brightness-95",
-                  "disabled:cursor-not-allowed disabled:opacity-60"
-                )}
-              >
-                {saving ? "Salvando..." : "Adicionar"}
-              </button>
-
-              <div className="text-center text-xs text-black/45">
-                Se você quiser que esse cliente tenha login no catálogo, a gente cria um fluxo separado.
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        open={modalOpen}
+        mode={modalMode}
+        loading={saving}
+        title={modalMode === "create" ? "Adicionar cliente" : "Editar cliente"}
+        form={form}
+        setForm={setForm}
+        onClose={() => {
+          if (saving) return;
+          setModalOpen(false);
+          setEditing(null);
+        }}
+        onSubmit={handleSubmit}
+      />
     </div>
   );
 }
