@@ -260,8 +260,18 @@ export default function PedidosPage() {
   }
 
   async function cancelarPedido(pedidoId: string) {
-    toast("Cancelar: vamos criar o RPC na próxima etapa.", { icon: "🛠️" });
-    void pedidoId;
+    try {
+      const { error } = await supabaseClient.rpc("rpc_cancelar_pedido", {
+        p_pedido_id: pedidoId,
+      });
+      if (error) throw error;
+
+      toast.success("Pedido cancelado.");
+      await loadPedidos();
+    } catch (err) {
+      console.error(err);
+      toast.error("Não foi possível cancelar o pedido.");
+    }
   }
 
   useEffect(() => {
