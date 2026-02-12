@@ -14,6 +14,8 @@ import {
   Package,
 } from "lucide-react";
 
+const PAGE_SIZE = 10;
+
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
@@ -112,11 +114,6 @@ function statusPillClass(status: PedidoStatus) {
   return "bg-black/5 text-black/70 border-black/10";
 }
 
-function firstEmbed<T>(v: T[] | null | undefined): T | null {
-  if (!v || v.length === 0) return null;
-  return v[0] ?? null;
-}
-
 function pickClienteNome(v: ClienteEmbed | ClienteEmbed[] | null | undefined) {
   if (!v) return null;
   if (Array.isArray(v)) return v[0]?.nome ?? null;
@@ -132,11 +129,14 @@ function pickProdutoNome(v: ProdutoEmbed | ProdutoEmbed[] | null | undefined) {
 export default function PedidosPage() {
   const [loading, setLoading] = useState(true);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
+  const [page, setPage] = useState(1); // 1-based
+  const [totalCount, setTotalCount] = useState(0);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [itemsByPedido, setItemsByPedido] = useState<Record<string, PedidoItem[]>>({});
   const [loadingItems, setLoadingItems] = useState<Record<string, boolean>>({});
 
   const totalPedidos = useMemo(() => pedidos.length, [pedidos]);
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(totalCount / PAGE_SIZE)), [totalCount]);
 
   async function loadPedidos() {
     try {
@@ -154,20 +154,26 @@ export default function PedidosPage() {
       const empresaId = empresas?.[0]?.id;
       if (!empresaId) {
         setPedidos([]);
+        setTotalCount(0);
         return;
       }
 
+      const from = (page - 1) * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+
       // 2) busca pedidos só dessa empresa
-      const { data, error } = await supabaseClient
+      const { data, count, error } = await supabaseClient
         .from("pedidos")
         .select(
           `
           id, empresa_id, cliente_usuario_id, status, total, criado_em, atualizado_em,
           clientes:clientes!pedidos_cliente_usuario_id_fkey(nome)
-          `
+          `,
+          { count: "exact" }
         )
         .eq("empresa_id", empresaId)
-        .order("criado_em", { ascending: false });
+        .order("criado_em", { ascending: false })
+        .range(from, to);
 
       if (error) throw error;
 
@@ -184,6 +190,7 @@ export default function PedidosPage() {
         cliente_nome: pickClienteNome(r.clientes),
       }));
 
+      setTotalCount(count ?? 0);
       setPedidos(normalized);
     } catch (err) {
       console.error(err);
@@ -277,7 +284,7 @@ export default function PedidosPage() {
   useEffect(() => {
     loadPedidos();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [page]);
 
   return (
     <div className="min-h-screen bg-white text-[#0f172a]">
@@ -451,6 +458,32 @@ export default function PedidosPage() {
                   </div>
                 );
               })}
+
+              <div className="mt-4 flex items-center justify-between">
+                <div className="text-xs text-black/50">
+                  Página {page} de {totalPages} • {totalCount} pedido(s)
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                    className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm text-black/70 hover:bg-black/5 disabled:opacity-50"
+                  >
+                    Anterior
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page >= totalPages}
+                    className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm text-black/70 hover:bg-black/5 disabled:opacity-50"
+                  >
+                    Próxima
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </section>
