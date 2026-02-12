@@ -170,7 +170,7 @@ function Modal({
               autoComplete="tel"
             />
             <div className="mt-1 text-xs text-black/45">
-              Dica: pode digitar com espaços e traços — eu salvo só os números.
+              Dica: pode digitar com espaços e traços
             </div>
           </div>
 
@@ -448,7 +448,7 @@ export default function DashboardClientesPage() {
             <div className="text-sm text-black/60">Clientes</div>
             <div className="mt-1 text-lg font-semibold text-black">{empresa?.nome ?? "—"}</div>
             <div className="mt-1 text-xs text-black/55">
-              Misturando <b>usuários (logados)</b> e <b>contatos (manuais)</b>.
+              Usuarios e contatos!
             </div>
           </div>
 
