@@ -459,21 +459,31 @@ export default function DashboardPage() {
               <div className="h-[220px] w-full rounded-xl bg-black/5 animate-pulse" />
             ) : (
               <div className="h-[220px]">
-                <div className="flex h-full items-end gap-2">
-                  {serieAprovadas.map((d) => {
-                    const h = Math.max(3, Math.round((d.total / maxSerie) * 100)); // %
-                    return (
-                      <div key={d.key} className="flex min-w-0 flex-1 flex-col items-center gap-2">
-                        <div
-                          className="w-full rounded-xl border border-black/10 bg-black/5"
-                          style={{ height: `${h}%` }}
-                          title={`${d.label} • ${formatBRL(d.total)}`}
-                        />
-                        <div className="text-[11px] text-black/45">{d.label}</div>
-                      </div>
-                    );
-                  })}
-                </div>
+                {serieAprovadas.every((x) => x.total === 0) ? (
+                  <div className="grid h-full place-items-center rounded-xl border border-black/10 bg-black/5 text-sm text-black/55">
+                    Sem vendas aprovadas no período
+                  </div>
+                ) : (
+                  <div className="flex h-full items-end gap-2">
+                    {serieAprovadas.map((d) => {
+                      const pct = Math.max(3, Math.round((d.total / maxSerie) * 100)); // %
+                      return (
+                        <div key={d.key} className="flex min-w-0 flex-1 flex-col items-center gap-2">
+                          {/* este wrapper tem altura fixa -> % funciona */}
+                          <div className="flex h-[170px] w-full items-end">
+                            <div
+                              className="w-full rounded-xl border border-black/10 bg-black/5"
+                              style={{ height: `${pct}%` }}
+                              title={`${d.label} • ${formatBRL(d.total)}`}
+                            />
+                          </div>
+
+                          <div className="text-[11px] text-black/45">{d.label}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>
