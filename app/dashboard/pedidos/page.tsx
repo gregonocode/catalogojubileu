@@ -9,8 +9,6 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronUp,
-  CheckCircle2,
-  XCircle,
   Package,
 } from "lucide-react";
 
@@ -20,7 +18,7 @@ function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-type PedidoStatus = "rascunho" | "enviado_whatsapp" | "cancelado" | string;
+type PedidoStatus = "rascunho" | "enviado_whatsapp" | "aprovado" | "cancelado";
 
 type ClienteEmbed = { nome: string | null };
 
@@ -99,19 +97,21 @@ function formatShortDateTime(iso: string) {
   return `${dd}/${mm}/${yy}, ${hh}:${mi}`;
 }
 
-function statusLabel(status: PedidoStatus) {
-  // visual only (sem mudar banco)
+function isFinalizado(status: string): boolean {
+  return status === "aprovado" || status === "cancelado";
+}
+
+function statusLabel(status: string) {
   if (status === "rascunho") return "pendente";
-  if (status === "enviado_whatsapp") return "pendente";
+  if (status === "enviado_whatsapp") return "enviado";
+  if (status === "aprovado") return "aprovado";
   if (status === "cancelado") return "cancelado";
   return status;
 }
 
-function statusPillClass(status: PedidoStatus) {
-  const visual = statusLabel(status);
-  if (visual === "pendente") return "bg-[#EB3410]/10 text-[#EB3410] border-[#EB3410]/20";
-  if (visual === "cancelado") return "bg-black/5 text-black/70 border-black/10";
-  return "bg-black/5 text-black/70 border-black/10";
+// 0 = aparece em cima / 1 = embaixo
+function statusRank(status: string): number {
+  return isFinalizado(status) ? 1 : 0;
 }
 
 function pickClienteNome(v: ClienteEmbed | ClienteEmbed[] | null | undefined) {
@@ -137,6 +137,19 @@ export default function PedidosPage() {
 
   const totalPedidos = useMemo(() => pedidos.length, [pedidos]);
   const totalPages = useMemo(() => Math.max(1, Math.ceil(totalCount / PAGE_SIZE)), [totalCount]);
+  const pedidosOrdenados = useMemo(() => {
+    const copy = [...pedidos];
+    copy.sort((a, b) => {
+      const ra = statusRank(a.status);
+      const rb = statusRank(b.status);
+      if (ra !== rb) return ra - rb;
+
+      const da = new Date(a.criado_em).getTime();
+      const db = new Date(b.criado_em).getTime();
+      return db - da;
+    });
+    return copy;
+  }, [pedidos]);
 
   async function loadPedidos() {
     try {
@@ -330,9 +343,9 @@ export default function PedidosPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {pedidos.map((p) => {
-                const visualStatus = statusLabel(p.status);
+              {pedidosOrdenados.map((p) => {
                 const isExpanded = Boolean(expanded[p.id]);
+                const finalizado = isFinalizado(p.status);
                 const clienteNome = p.cliente_nome?.trim() || "Cliente sem nome";
                 const itens = itemsByPedido[p.id] ?? [];
                 const itensCount = itens.length;
@@ -351,12 +364,15 @@ export default function PedidosPage() {
 
                           <span
                             className={cn(
-                              "inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold",
-                              statusPillClass(p.status)
+                              "rounded-full border px-3 py-1 text-xs font-semibold",
+                              p.status === "aprovado" && "border-green-200 bg-green-50 text-green-700",
+                              p.status === "cancelado" && "border-red-200 bg-red-50 text-red-700",
+                              (p.status === "rascunho" || p.status === "enviado_whatsapp") &&
+                                "border-black/10 bg-black/5 text-black/70"
                             )}
                             title={p.status}
                           >
-                            {visualStatus}
+                            {statusLabel(p.status)}
                           </span>
                         </div>
 
@@ -392,18 +408,25 @@ export default function PedidosPage() {
                         <button
                           type="button"
                           onClick={() => cancelarPedido(p.id)}
-                          className="inline-flex items-center gap-2 rounded-2xl border border-black/10 bg-white px-4 py-2 text-sm text-black/70 hover:bg-black/5"
+                          disabled={finalizado}
+                          className={cn(
+                            "rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-medium text-black/70 hover:bg-black/5",
+                            finalizado && "cursor-not-allowed opacity-40 hover:bg-white"
+                          )}
                         >
-                          <XCircle size={16} /> Cancelar
+                          Cancelar
                         </button>
 
                         <button
                           type="button"
                           onClick={() => aprovarPedido(p.id)}
-                          className="inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
-                          style={{ backgroundColor: "#16a34a" }}
+                          disabled={finalizado}
+                          className={cn(
+                            "rounded-xl bg-[#16a34a] px-3 py-2 text-sm font-semibold text-white hover:brightness-95",
+                            finalizado && "cursor-not-allowed opacity-40 hover:brightness-100"
+                          )}
                         >
-                          <CheckCircle2 size={16} /> Aprovar
+                          Aprovar
                         </button>
                       </div>
                     </div>
