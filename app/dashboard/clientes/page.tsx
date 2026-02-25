@@ -3,8 +3,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabaseClient } from "@/lib/supabase/client";
-import toast from "react-hot-toast";
-import { Plus, Pencil, X } from "lucide-react";
+import toast, { Toaster } from "react-hot-toast";
+import { Plus, Pencil, X, Trash2 } from "lucide-react";
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -446,9 +446,52 @@ export default function DashboardClientesPage() {
   const totalUsuarios = usuarios.length;
   const totalContatos = contatos.length;
 
+ async function removeContato(item: ClienteItem) {
+  toast.dismiss();
+
+  if (!empresa?.id) {
+    toast.error("Empresa não encontrada.");
+    return;
+  }
+
+  if (item.kind !== "contato") {
+    toast.error("Não é possível excluir usuários logados por aqui.");
+    return;
+  }
+
+  const ok = window.confirm(`Excluir o contato "${item.nome}"?`);
+  if (!ok) return;
+
+  const before = contatos;
+  setContatos((prev) => prev.filter((x) => x.id !== item.id));
+
+  const { data, error } = await supabaseClient
+    .from("clientes_contatos")
+    .delete()
+    .eq("id", item.id)
+    .eq("empresa_id", empresa.id)
+    .select("id");
+
+  if (error) {
+    setContatos(before);
+    console.error("DELETE clientes_contatos error:", error);
+    toast.error(error.message ?? "Não foi possível excluir.");
+    return;
+  }
+
+  if (!data || data.length === 0) {
+    setContatos(before);
+    toast.error("Nada foi excluído (sem permissão/RLS ou contato não encontrado).");
+    return;
+  }
+
+  toast.success("Contato excluído.");
+}
   return (
     <div className="space-y-6">
+      <Toaster position="top-right" />
       {/* topo */}
+      
       <div className="rounded-3xl border border-black/10 bg-white p-5 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -580,20 +623,34 @@ export default function DashboardClientesPage() {
                     <td className="px-4 py-3 text-black/55">{formatDateShortBR(c.criado_em)}</td>
 
                     <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => openEdit(c)}
-                        className={cn(
-                          "inline-flex items-center gap-2 rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm",
-                          "hover:bg-black/5"
-                        )}
-                        title="Editar"
-                        aria-label="Editar cliente"
-                      >
-                        <Pencil size={16} />
-                        <span className="hidden sm:inline">Editar</span>
-                      </button>
-                    </td>
+  <div className="inline-flex items-center gap-2">
+    <button
+      type="button"
+      onClick={() => openEdit(c)}
+      className={cn(
+        "inline-flex items-center gap-2 rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm",
+        "hover:bg-black/5"
+      )}
+      title="Editar"
+      aria-label="Editar cliente"
+    >
+      <Pencil size={16} />
+      <span className="hidden sm:inline">Editar</span>
+    </button>
+
+    {c.kind === "contato" && (
+      <button
+        type="button"
+        onClick={() => removeContato(c)}
+        className="grid h-10 w-10 place-items-center rounded-2xl border border-black/10 bg-white hover:bg-black/5"
+        title="Excluir contato"
+        aria-label="Excluir contato"
+      >
+        <Trash2 size={16} />
+      </button>
+    )}
+  </div>
+</td>
                   </tr>
                 ))
               )}

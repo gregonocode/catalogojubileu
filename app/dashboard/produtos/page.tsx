@@ -138,7 +138,11 @@ export default function ProdutosPage() {
     // otimista
     setProdutos((prev) => prev.map((x) => (x.id === p.id ? { ...x, ativo: next } : x)));
 
-    const { error } = await supabaseClient.from("produtos").update({ ativo: next }).eq("id", p.id);
+    const { error } = await supabaseClient
+  .from("produtos")
+  .update({ ativo: next })
+  .eq("id", p.id)
+  .eq("empresa_id", empresa?.id ?? "");
 
     if (error) {
       // rollback
@@ -160,7 +164,11 @@ export default function ProdutosPage() {
     const before = produtos;
     setProdutos((prev) => prev.filter((x) => x.id !== p.id));
 
-    const { error } = await supabaseClient.from("produtos").delete().eq("id", p.id);
+    const { error } = await supabaseClient
+  .from("produtos")
+  .delete()
+  .eq("id", p.id)
+  .eq("empresa_id", empresa?.id ?? "");
 
     if (error) {
       setProdutos(before);
