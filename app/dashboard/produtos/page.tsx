@@ -376,15 +376,13 @@ export default function ProdutosPage() {
                             {p.ativo ? <EyeOff size={16} /> : <Eye size={16} />}
                           </button>
 
-                          {/* editar (vamos criar depois) */}
-                          <button
-                            onClick={() => toast("Edição a gente cria já já 😉")}
-                            className="grid h-10 w-10 place-items-center rounded-2xl border border-black/10 bg-white hover:bg-black/5"
-                            title="Editar"
-                          >
-                            <Pencil size={16} />
-                          </button>
-
+                          {/* editar */}
+                   <Link
+                   href={`/dashboard/produtos/${p.id}`}
+                   className="grid h-10 w-10 place-items-center rounded-2xl border border-black/10 bg-white hover:bg-black/5"
+                   title="Editar">
+                  <Pencil size={16} />
+                     </Link>
                           <button
                             onClick={() => removeProduto(p)}
                             className="grid h-10 w-10 place-items-center rounded-2xl border border-black/10 bg-white hover:bg-black/5"
