@@ -43,6 +43,12 @@ type Categoria = {
   nome: string;
 };
 
+function truncateText(text: string, max = 42) {
+  const t = text.trim().replace(/\s+/g, " ");
+  if (t.length <= max) return t;
+  return t.slice(0, max).trimEnd() + "...";
+}
+
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -311,17 +317,17 @@ export default function ProdutosPage() {
         </div>
 
         <div className="mt-4 overflow-hidden rounded-2xl border border-black/10">
-          <table className="w-full text-left text-sm">
+          <table className="w-full table-fixed text-left text-sm">
             <thead className="bg-black/5 text-xs text-black/55">
-              <tr>
-                <th className="px-4 py-3">Produto</th>
-                <th className="px-4 py-3">Categoria</th>
-                <th className="px-4 py-3">Preço</th>
-                <th className="px-4 py-3">Estoque</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3 text-right">Ações</th>
-              </tr>
-            </thead>
+  <tr>
+    <th className="px-4 py-3 w-[44%]">Produto</th>
+    <th className="px-4 py-3 w-[16%]">Categoria</th>
+    <th className="px-4 py-3 w-[12%]">Preço</th>
+    <th className="px-4 py-3 w-[10%]">Estoque</th>
+    <th className="px-4 py-3 w-[10%]">Status</th>
+    <th className="px-4 py-3 w-[8%] text-right whitespace-nowrap">Ações</th>
+  </tr>
+</thead>
 
             <tbody className="divide-y divide-black/10">
               {loading ? (
@@ -351,10 +357,9 @@ export default function ProdutosPage() {
                             ) : null}
                           </div>
                           <div className="min-w-0">
-                            <div className="truncate font-medium text-black">{p.nome}</div>
-                            <div className="truncate text-xs text-black/55">
-                              {p.descricao ?? "—"}
-                            </div>
+                            <div className="text-xs text-black/55 truncate">
+                           {p.descricao ? truncateText(p.descricao, 48) : "—"}
+                          </div>
                           </div>
                         </div>
                       </td>
@@ -374,7 +379,7 @@ export default function ProdutosPage() {
                         </span>
                       </td>
 
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex justify-end gap-2">
                           <button
                             onClick={() => toggleAtivo(p)}
