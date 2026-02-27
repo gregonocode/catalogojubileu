@@ -358,7 +358,7 @@ export default function ProdutosPage() {
                           </div>
                           <div className="min-w-0">
                             <div className="text-xs text-black/55 truncate">
-                           {p.descricao ? truncateText(p.descricao, 48) : "—"}
+                           {p.descricao ? truncateText(p.descricao, 30) : "—"}
                           </div>
                           </div>
                         </div>
