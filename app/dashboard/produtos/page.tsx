@@ -324,9 +324,9 @@ export default function ProdutosPage() {
     <th className="px-4 py-3 w-[20%]">Categoria</th>
     <th className="px-4 py-3 w-[14%]">Preço</th>
     <th className="px-4 py-3 w-[7%]">Estoque</th>
-    <th className="px-4 py-3 w-[12%]">Status</th>
-    <th className="px-4 py-3 w-[20%] text-right whitespace-nowrap">Ações</th>
-  </tr>
+    <th className="px-4 py-3 w-[15%]">Status</th>
+    <th className="px-4 py-3 w-[17%] text-right whitespace-nowrap">Ações</th>
+  </tr>git add <div className=""></div>
 </thead>
 
             <tbody className="divide-y divide-black/10">
