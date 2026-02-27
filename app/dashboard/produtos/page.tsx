@@ -320,12 +320,12 @@ export default function ProdutosPage() {
           <table className="w-full table-fixed text-left text-sm">
             <thead className="bg-black/5 text-xs text-black/55">
   <tr>
-    <th className="px-4 py-3 w-[30%]">Produto</th>
+    <th className="px-4 py-3 w-[25%]">Produto</th>
     <th className="px-4 py-3 w-[20%]">Categoria</th>
     <th className="px-4 py-3 w-[14%]">Preço</th>
     <th className="px-4 py-3 w-[7%]">Estoque</th>
     <th className="px-4 py-3 w-[12%]">Status</th>
-    <th className="px-4 py-3 w-[17%] text-right whitespace-nowrap">Ações</th>
+    <th className="px-4 py-3 w-[20%] text-right whitespace-nowrap">Ações</th>
   </tr>
 </thead>
 
