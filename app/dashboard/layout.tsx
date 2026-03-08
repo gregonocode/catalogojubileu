@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import DashboardClientLayout from "./DashboardClientLayout";
 
 export const metadata: Metadata = {
-  manifest: "/dashboard-manifest.webmanifest",
-  themeColor: "#EB3410",
+  title: "Pneu Forte Admin",
+  description: "Painel administrativo da Pneu Forte",
 };
 
 export default function DashboardLayout({
@@ -11,5 +11,16 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <DashboardClientLayout>{children}</DashboardClientLayout>;
+  return (
+    <>
+      <head>
+        <link rel="manifest" href="/dashboard-manifest.webmanifest" />
+        <meta name="theme-color" content="#EB3410" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+      </head>
+
+      <DashboardClientLayout>{children}</DashboardClientLayout>
+    </>
+  );
 }
