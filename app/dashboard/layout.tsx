@@ -8,8 +8,8 @@ export const metadata: Metadata = {
   themeColor: "#EB3410",
   appleWebApp: {
     capable: true,
-    statusBarStyle: "default",
     title: "Pneu Forte Admin",
+    statusBarStyle: "default",
   },
 };
 
