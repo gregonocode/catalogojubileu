@@ -1,93 +1,121 @@
-'use client';
+"use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import { supabaseClient } from '@/lib/supabase/client';
-import { Search, FileDown, RefreshCcw, Eye } from 'lucide-react';
-import jsPDF from 'jspdf';
+import { useEffect, useMemo, useState } from "react";
+import { supabaseClient } from "@/lib/supabase/client";
+import toast, { Toaster } from "react-hot-toast";
+import { Search, RefreshCw, FileDown, Eye, Package } from "lucide-react";
+import jsPDF from "jspdf";
 
 function cn(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(' ');
+  return classes.filter(Boolean).join(" ");
 }
+
+type ClienteEmbed = { nome: string | null; telefone?: string | null };
 
 type PedidoRow = {
   id: string;
   empresa_id: string;
   cliente_usuario_id: string | null;
-  status: string | null;
-  total: string | number | null;
+  status: "rascunho" | "enviado_whatsapp" | "aprovado" | "cancelado";
+  total: number | string;
   criado_em: string;
-  atualizado_em: string | null;
+  atualizado_em: string;
+  clientes?: ClienteEmbed | ClienteEmbed[] | null;
 };
+
+type ProdutoEmbed = { nome: string | null };
 
 type PedidoItemRow = {
   id: string;
   pedido_id: string;
-  produto_id: string | null;
-  quantidade: number | null;
-  preco_unitario: string | number | null;
-  subtotal: string | number | null;
-  criado_em: string | null;
+  produto_id: string;
+  quantidade: number;
+  preco_unitario: number | string;
+  subtotal: number | string;
+  criado_em: string;
+  produtos?: ProdutoEmbed | ProdutoEmbed[] | null;
 };
 
-type ClienteRow = {
-  usuario_id: string;
-  nome: string | null;
-  telefone: string | null;
-  criado_em: string | null;
-};
-
-type ProdutoRow = {
+type PedidoItem = {
   id: string;
-  nome: string | null;
-  codigo: string | null; // ajuste se o nome do campo for outro
-};
-
-type PedidoItemDetalhado = {
-  id: string;
-  produto_id: string | null;
-  produto_nome: string;
-  produto_codigo: string | null;
+  pedido_id: string;
+  produto_id: string;
   quantidade: number;
   preco_unitario: number;
   subtotal: number;
+  criado_em: string;
+  produto_nome: string | null;
 };
 
-type PedidoRelatorio = {
+type Pedido = {
   id: string;
   empresa_id: string;
   cliente_usuario_id: string | null;
-  status: string;
+  status: "rascunho" | "enviado_whatsapp" | "aprovado" | "cancelado";
   total: number;
   criado_em: string;
-  atualizado_em: string | null;
-  cliente_nome: string;
+  atualizado_em: string;
+  cliente_nome: string | null;
   cliente_telefone: string | null;
-  itens: PedidoItemDetalhado[];
+  itens: PedidoItem[];
 };
 
-function money(value: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  }).format(value);
+function toNumber(v: number | string | null | undefined) {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
 }
 
-function formatDate(date: string) {
-  return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(date));
+function formatBRL(v: number) {
+  return (Number(v) || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
 }
 
-function shortOrderNumber(id: string) {
-  return id.slice(0, 8).toUpperCase();
+function shortId(id: string) {
+  if (!id) return "";
+  const a = id.split("-")[0] ?? id.slice(0, 8);
+  return a.toUpperCase();
 }
 
-function onlyDigits(value: string | null | undefined) {
-  return (value ?? '').replace(/\D/g, '');
+function formatPdfDate(iso: string) {
+  const d = new Date(iso);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = d.toLocaleString("pt-BR", { month: "short" });
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${dd} de ${mm} de ${yyyy} - ${hh}:${mi}`;
+}
+
+function formatShortDateTime(iso: string) {
+  const d = new Date(iso);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yy = String(d.getFullYear()).slice(-2);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${dd}/${mm}/${yy}, ${hh}:${mi}`;
+}
+
+function pickCliente(v: ClienteEmbed | ClienteEmbed[] | null | undefined) {
+  if (!v) return { nome: null, telefone: null };
+  if (Array.isArray(v)) {
+    return {
+      nome: v[0]?.nome ?? null,
+      telefone: v[0]?.telefone ?? null,
+    };
+  }
+  return {
+    nome: v.nome ?? null,
+    telefone: v.telefone ?? null,
+  };
+}
+
+function pickProdutoNome(v: ProdutoEmbed | ProdutoEmbed[] | null | undefined) {
+  if (!v) return null;
+  if (Array.isArray(v)) return v[0]?.nome ?? null;
+  return v.nome ?? null;
 }
 
 function drawLine(doc: jsPDF, y: number) {
@@ -96,11 +124,11 @@ function drawLine(doc: jsPDF, y: number) {
   doc.line(14, y, 196, y);
 }
 
-function generatePedidoPdf(pedido: PedidoRelatorio) {
+function generatePedidoPdf(pedido: Pedido) {
   const doc = new jsPDF({
-    orientation: 'p',
-    unit: 'mm',
-    format: 'a4',
+    orientation: "p",
+    unit: "mm",
+    format: "a4",
   });
 
   const pageWidth = 210;
@@ -108,66 +136,60 @@ function generatePedidoPdf(pedido: PedidoRelatorio) {
   const right = 196;
   let y = 18;
 
-  const title = `VENDA N°${shortOrderNumber(pedido.id)}`;
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(14);
-  doc.text(title, pageWidth / 2, y, { align: 'center' });
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(15);
+  doc.text(`VENDA N°${shortId(pedido.id)}`, pageWidth / 2, y, { align: "center" });
 
   y += 8;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.text(formatDate(pedido.criado_em), pageWidth / 2, y, { align: 'center' });
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10.5);
+  doc.text(formatPdfDate(pedido.criado_em), pageWidth / 2, y, { align: "center" });
 
   y += 18;
-  doc.setFont('helvetica', 'bold');
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
-  doc.text(pedido.cliente_nome || 'Cliente sem nome', left, y);
+  doc.text(pedido.cliente_nome || "Cliente sem nome", left, y);
 
   y += 6;
-  doc.setFont('helvetica', 'normal');
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(10.5);
-  doc.text(`Telefone/Whatsapp: ${pedido.cliente_telefone || '-'}`, left, y);
-
-  y += 6;
-  doc.text(`Pedido: ${pedido.id}`, left, y);
+  doc.text(`Telefone/Whatsapp: ${pedido.cliente_telefone || "-"}`, left, y);
 
   y += 10;
   drawLine(doc, y);
 
   y += 12;
-  doc.setFont('helvetica', 'bold');
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.text(`${pedido.itens.length} Itens`, left, y);
 
   y += 6;
-  doc.setFont('helvetica', 'normal');
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
-  const quantidadeTotal = pedido.itens.reduce((acc, item) => acc + item.quantidade, 0);
-  doc.text(`Quantidade: ${quantidadeTotal}`, left, y);
+  const qtdTotal = pedido.itens.reduce((acc, item) => acc + item.quantidade, 0);
+  doc.text(`Quantidade: ${qtdTotal}`, left, y);
 
   y += 14;
 
   for (const item of pedido.itens) {
-    const descricao = `${item.produto_nome}${item.produto_codigo ? ` (Cod. ${item.produto_codigo})` : ''}`;
-    const descricaoLinhas = doc.splitTextToSize(descricao, 100);
+    const nome = item.produto_nome || item.produto_id;
+    const linhas = doc.splitTextToSize(nome, 105);
 
-    doc.setFont('helvetica', 'bold');
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
     doc.text(String(item.quantidade), left, y);
 
-    doc.setFont('helvetica', 'normal');
+    doc.setFont("helvetica", "normal");
     doc.setFontSize(10.5);
-    doc.text(descricaoLinhas, left + 16, y);
+    doc.text(linhas, left + 16, y);
 
-    const precoUnit = money(item.preco_unitario);
-    doc.text(precoUnit, left + 16, y + descricaoLinhas.length * 5 + 1);
+    doc.text(formatBRL(item.preco_unitario), left + 16, y + linhas.length * 5 + 1);
 
-    doc.setFont('helvetica', 'bold');
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
-    doc.text(money(item.subtotal), right, y, { align: 'right' });
+    doc.text(formatBRL(item.subtotal), right, y, { align: "right" });
 
-    y += Math.max(20, descricaoLinhas.length * 5 + 12);
+    y += Math.max(20, linhas.length * 5 + 12);
 
     doc.setDrawColor(220, 220, 220);
     doc.setLineWidth(0.3);
@@ -183,274 +205,232 @@ function generatePedidoPdf(pedido: PedidoRelatorio) {
   drawLine(doc, y);
 
   y += 14;
-  doc.setFont('helvetica', 'normal');
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
-  doc.text(`Subtotal: ${money(pedido.total)}`, right, y, { align: 'right' });
+  doc.text(`Subtotal: ${formatBRL(pedido.total)}`, right, y, { align: "right" });
 
   y += 8;
-  doc.text(`Dinheiro: ${money(pedido.total)}`, right, y, { align: 'right' });
+  doc.text(`Dinheiro: ${formatBRL(pedido.total)}`, right, y, { align: "right" });
 
   y += 10;
-  doc.setFont('helvetica', 'bold');
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(13);
-  doc.text(`Total: ${money(pedido.total)}`, right, y, { align: 'right' });
+  doc.text(`Total: ${formatBRL(pedido.total)}`, right, y, { align: "right" });
 
-  doc.save(`pedido-${shortOrderNumber(pedido.id)}.pdf`);
+  doc.save(`pedido-${shortId(pedido.id)}.pdf`);
 }
 
 export default function RelatoriosPage() {
-  const [pedidos, setPedidos] = useState<PedidoRelatorio[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [selected, setSelected] = useState<PedidoRelatorio | null>(null);
+  const [pedidos, setPedidos] = useState<Pedido[]>([]);
+  const [selected, setSelected] = useState<Pedido | null>(null);
+  const [search, setSearch] = useState("");
 
-  async function loadData() {
-    setLoading(true);
-
+  async function loadRelatorios() {
     try {
-      const { data: pedidosData, error: pedidosError } = await supabaseClient
-        .from('pedidos')
-        .select('id, empresa_id, cliente_usuario_id, status, total, criado_em, atualizado_em')
-        .eq('status', 'aprovado')
-        .order('criado_em', { ascending: false });
+      setLoading(true);
 
-      if (pedidosError) throw pedidosError;
+      const { data: empresas, error: empErr } = await supabaseClient
+        .from("empresas")
+        .select("id")
+        .order("criado_em", { ascending: true })
+        .limit(1);
 
-      const pedidosRows = (pedidosData ?? []) as PedidoRow[];
+      if (empErr) throw empErr;
 
-      if (!pedidosRows.length) {
+      const empresaId = empresas?.[0]?.id;
+      if (!empresaId) {
         setPedidos([]);
         setSelected(null);
         return;
       }
 
-      const pedidoIds = pedidosRows.map((p) => p.id);
-      const clienteIds = Array.from(
-        new Set(
-          pedidosRows
-            .map((p) => p.cliente_usuario_id)
-            .filter((v): v is string => Boolean(v))
+      const { data, error } = await supabaseClient
+        .from("pedidos")
+        .select(
+          `
+          id, empresa_id, cliente_usuario_id, status, total, criado_em, atualizado_em,
+          clientes:clientes!pedidos_cliente_usuario_id_fkey(nome, telefone)
+          `
         )
-      );
+        .eq("empresa_id", empresaId)
+        .eq("status", "aprovado")
+        .order("criado_em", { ascending: false });
 
-      const { data: itensData, error: itensError } = await supabaseClient
-        .from('pedidos_itens')
-        .select('id, pedido_id, produto_id, quantidade, preco_unitario, subtotal, criado_em')
-        .in('pedido_id', pedidoIds);
+      if (error) throw error;
 
-      if (itensError) throw itensError;
+      const rows = (data ?? []) as unknown as PedidoRow[];
+      const pedidoIds = rows.map((r) => r.id);
 
-      const itensRows = (itensData ?? []) as PedidoItemRow[];
+      let itensMap: Record<string, PedidoItem[]> = {};
 
-      const produtoIds = Array.from(
-        new Set(
-          itensRows
-            .map((i) => i.produto_id)
-            .filter((v): v is string => Boolean(v))
-        )
-      );
+      if (pedidoIds.length > 0) {
+        const { data: itensData, error: itensError } = await supabaseClient
+          .from("pedidos_itens")
+          .select(
+            `
+            id, pedido_id, produto_id, quantidade, preco_unitario, subtotal, criado_em,
+            produtos:produtos!pedidos_itens_produto_id_fkey(nome)
+            `
+          )
+          .in("pedido_id", pedidoIds)
+          .order("criado_em", { ascending: true });
 
-      const [{ data: clientesData, error: clientesError }, { data: produtosData, error: produtosError }] =
-        await Promise.all([
-          clienteIds.length
-            ? supabaseClient
-                .from('clientes')
-                .select('usuario_id, nome, telefone, criado_em')
-                .in('usuario_id', clienteIds)
-            : Promise.resolve({ data: [], error: null }),
-          produtoIds.length
-            ? supabaseClient
-                .from('produtos')
-                .select('id, nome, codigo')
-                .in('id', produtoIds)
-            : Promise.resolve({ data: [], error: null }),
-        ]);
+        if (itensError) throw itensError;
 
-      if (clientesError) throw clientesError;
-      if (produtosError) throw produtosError;
+        const itensRows = (itensData ?? []) as unknown as PedidoItemRow[];
 
-      const clientesRows = (clientesData ?? []) as ClienteRow[];
-      const produtosRows = (produtosData ?? []) as ProdutoRow[];
+        for (const it of itensRows) {
+          const item: PedidoItem = {
+            id: it.id,
+            pedido_id: it.pedido_id,
+            produto_id: it.produto_id,
+            quantidade: toNumber(it.quantidade),
+            preco_unitario: toNumber(it.preco_unitario),
+            subtotal: toNumber(it.subtotal),
+            criado_em: it.criado_em,
+            produto_nome: pickProdutoNome(it.produtos),
+          };
 
-      const clientesMap = new Map(clientesRows.map((c) => [c.usuario_id, c]));
-      const produtosMap = new Map(produtosRows.map((p) => [p.id, p]));
-
-      const itensPorPedido = new Map<string, PedidoItemDetalhado[]>();
-
-      for (const item of itensRows) {
-        const produto = item.produto_id ? produtosMap.get(item.produto_id) : null;
-
-        const detalhado: PedidoItemDetalhado = {
-          id: item.id,
-          produto_id: item.produto_id,
-          produto_nome: produto?.nome ?? 'Produto sem nome',
-          produto_codigo: produto?.codigo ?? null,
-          quantidade: Number(item.quantidade ?? 0),
-          preco_unitario: Number(item.preco_unitario ?? 0),
-          subtotal: Number(item.subtotal ?? 0),
-        };
-
-        const arr = itensPorPedido.get(item.pedido_id) ?? [];
-        arr.push(detalhado);
-        itensPorPedido.set(item.pedido_id, arr);
+          if (!itensMap[it.pedido_id]) itensMap[it.pedido_id] = [];
+          itensMap[it.pedido_id].push(item);
+        }
       }
 
-      const finalRows: PedidoRelatorio[] = pedidosRows.map((pedido) => {
-        const cliente = pedido.cliente_usuario_id
-          ? clientesMap.get(pedido.cliente_usuario_id)
-          : null;
+      const normalized: Pedido[] = rows.map((r) => {
+        const cliente = pickCliente(r.clientes);
 
         return {
-          id: pedido.id,
-          empresa_id: pedido.empresa_id,
-          cliente_usuario_id: pedido.cliente_usuario_id,
-          status: pedido.status ?? 'aprovado',
-          total: Number(pedido.total ?? 0),
-          criado_em: pedido.criado_em,
-          atualizado_em: pedido.atualizado_em,
-          cliente_nome: cliente?.nome ?? 'Cliente sem nome',
-          cliente_telefone: cliente?.telefone ?? null,
-          itens: itensPorPedido.get(pedido.id) ?? [],
+          id: r.id,
+          empresa_id: r.empresa_id,
+          cliente_usuario_id: r.cliente_usuario_id ?? null,
+          status: r.status,
+          total: toNumber(r.total),
+          criado_em: r.criado_em,
+          atualizado_em: r.atualizado_em,
+          cliente_nome: cliente.nome,
+          cliente_telefone: cliente.telefone,
+          itens: itensMap[r.id] ?? [],
         };
       });
 
-      setPedidos(finalRows);
-      setSelected((current) => {
-        if (!current) return finalRows[0] ?? null;
-        return finalRows.find((p) => p.id === current.id) ?? finalRows[0] ?? null;
-      });
-    } catch (error) {
-      console.error('Erro ao carregar relatórios:', error);
-      setPedidos([]);
-      setSelected(null);
+      setPedidos(normalized);
+      setSelected((prev) => normalized.find((p) => p.id === prev?.id) ?? normalized[0] ?? null);
+    } catch (err) {
+      console.error(err);
+      toast.error("Não foi possível carregar os relatórios.");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadData();
+    loadRelatorios();
   }, []);
 
-  const filtered = useMemo(() => {
+  const pedidosFiltrados = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return pedidos;
 
-    const qDigits = onlyDigits(q);
-
-    return pedidos.filter((pedido) => {
-      const idMatch =
-        pedido.id.toLowerCase().includes(q) ||
-        shortOrderNumber(pedido.id).toLowerCase().includes(q);
-
-      const nomeMatch = pedido.cliente_nome.toLowerCase().includes(q);
-
-      const telefoneMatch = qDigits
-        ? onlyDigits(pedido.cliente_telefone).includes(qDigits)
-        : false;
-
-      return idMatch || nomeMatch || telefoneMatch;
+    return pedidos.filter((p) => {
+      const nome = (p.cliente_nome ?? "").toLowerCase();
+      const id = p.id.toLowerCase();
+      const sid = shortId(p.id).toLowerCase();
+      return nome.includes(q) || id.includes(q) || sid.includes(q);
     });
   }, [pedidos, search]);
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h1 className="text-2xl font-extrabold tracking-tight text-zinc-900">
-              Relatórios
-            </h1>
-            <p className="mt-1 text-sm text-zinc-500">
-              Pesquise pedidos aprovados e gere o PDF de impressão.
-            </p>
-          </div>
+    <div className="min-h-screen bg-white text-[#0f172a]">
+      <Toaster position="top-right" />
 
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="relative min-w-[280px]">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar por pedido, cliente ou telefone..."
-                className="h-11 w-full rounded-2xl border border-zinc-200 bg-white pl-10 pr-4 text-sm outline-none transition focus:border-zinc-400"
-              />
+      <div className="mx-auto w-full max-w-7xl px-4 py-6">
+        <section className="rounded-3xl border border-black/10 bg-white p-6 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.25)]">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="text-lg font-semibold text-black">Relatórios</div>
+              <div className="text-sm text-black/55">
+                {loading ? "Carregando..." : `${pedidosFiltrados.length} pedido(s) aprovado(s)`}
+              </div>
             </div>
 
-            <button
-              type="button"
-              onClick={loadData}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
-            >
-              <RefreshCcw className="h-4 w-4" />
-              Atualizar
-            </button>
-          </div>
-        </div>
-      </div>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <div className="relative min-w-[280px]">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-black/35" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Buscar por pedido ou cliente..."
+                  className="h-11 w-full rounded-2xl border border-black/10 bg-white pl-10 pr-4 text-sm outline-none transition focus:border-black/30"
+                />
+              </div>
 
-      <div className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
-        <div className="rounded-3xl border border-zinc-200 bg-white shadow-sm">
-          <div className="border-b border-zinc-100 px-5 py-4">
-            <h2 className="text-sm font-bold text-zinc-900">
-              Pedidos aprovados ({filtered.length})
-            </h2>
+              <button
+                type="button"
+                onClick={loadRelatorios}
+                className="inline-flex items-center gap-2 rounded-2xl border border-black/10 bg-white px-4 py-2 text-sm hover:bg-black/5"
+              >
+                <RefreshCw size={16} />
+                Atualizar
+              </button>
+            </div>
           </div>
+        </section>
 
-          <div className="max-h-[70vh] overflow-y-auto p-3">
+        <section className="mt-6 grid gap-6 xl:grid-cols-[390px_minmax(0,1fr)]">
+          <div className="rounded-3xl border border-black/10 bg-white p-4 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.25)]">
+            <div className="mb-3 text-sm font-semibold text-black">Pedidos aprovados</div>
+
             {loading ? (
               <div className="space-y-3">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="animate-pulse rounded-2xl border border-zinc-100 p-4"
-                  >
-                    <div className="h-4 w-28 rounded bg-zinc-200" />
-                    <div className="mt-3 h-3 w-40 rounded bg-zinc-100" />
-                    <div className="mt-2 h-3 w-24 rounded bg-zinc-100" />
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="rounded-2xl border border-black/10 p-4">
+                    <div className="h-4 w-28 rounded bg-black/5" />
+                    <div className="mt-2 h-3 w-40 rounded bg-black/5" />
+                    <div className="mt-2 h-3 w-24 rounded bg-black/5" />
                   </div>
                 ))}
               </div>
-            ) : filtered.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-zinc-200 p-8 text-center text-sm text-zinc-500">
+            ) : pedidosFiltrados.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-black/10 p-6 text-sm text-black/60">
                 Nenhum pedido aprovado encontrado.
               </div>
             ) : (
-              <div className="space-y-3">
-                {filtered.map((pedido) => {
-                  const active = selected?.id === pedido.id;
+              <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
+                {pedidosFiltrados.map((p) => {
+                  const active = selected?.id === p.id;
 
                   return (
                     <button
-                      key={pedido.id}
+                      key={p.id}
                       type="button"
-                      onClick={() => setSelected(pedido)}
+                      onClick={() => setSelected(p)}
                       className={cn(
-                        'w-full rounded-2xl border p-4 text-left transition',
+                        "w-full rounded-2xl border p-4 text-left transition",
                         active
-                          ? 'border-emerald-300 bg-emerald-50'
-                          : 'border-zinc-200 bg-white hover:bg-zinc-50'
+                          ? "border-green-200 bg-green-50"
+                          : "border-black/10 bg-white hover:bg-black/5"
                       )}
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-extrabold text-zinc-900">
-                            VENDA N°{shortOrderNumber(pedido.id)}
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-black">
+                            Pedido #{shortId(p.id)}
                           </div>
-                          <div className="mt-1 text-sm text-zinc-600">
-                            {pedido.cliente_nome}
+                          <div className="mt-1 truncate text-sm text-black/70">
+                            {p.cliente_nome || "Cliente sem nome"}
                           </div>
-                          <div className="mt-1 text-xs text-zinc-500">
-                            {formatDate(pedido.criado_em)}
+                          <div className="mt-1 text-xs text-black/45">
+                            {formatShortDateTime(p.criado_em)}
                           </div>
                         </div>
 
-                        <div className="text-right">
-                          <div className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-emerald-700">
+                        <div className="shrink-0 text-right">
+                          <div className="rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-[11px] font-semibold text-green-700">
                             aprovado
                           </div>
-                          <div className="mt-2 text-sm font-extrabold text-zinc-900">
-                            {money(pedido.total)}
+                          <div className="mt-2 text-sm font-semibold text-black">
+                            {formatBRL(p.total)}
                           </div>
                         </div>
                       </div>
@@ -460,130 +440,117 @@ export default function RelatoriosPage() {
               </div>
             )}
           </div>
-        </div>
 
-        <div className="rounded-3xl border border-zinc-200 bg-white shadow-sm">
-          {!selected ? (
-            <div className="flex min-h-[420px] items-center justify-center p-8 text-center text-sm text-zinc-500">
-              Selecione um pedido para visualizar e gerar o PDF.
-            </div>
-          ) : (
-            <div className="p-5">
-              <div className="flex flex-col gap-4 border-b border-zinc-100 pb-5 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <h2 className="text-2xl font-extrabold text-zinc-900">
-                    VENDA N°{shortOrderNumber(selected.id)}
-                  </h2>
-                  <p className="mt-1 text-sm text-zinc-500">
-                    {formatDate(selected.criado_em)}
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setSelected(selected)}
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
-                  >
-                    <Eye className="h-4 w-4" />
-                    Visualizando
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => generatePedidoPdf(selected)}
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[#01A920] px-4 text-sm font-bold text-white transition hover:opacity-90"
-                  >
-                    <FileDown className="h-4 w-4" />
-                    Baixar PDF
-                  </button>
-                </div>
+          <div className="rounded-3xl border border-black/10 bg-white p-5 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.25)]">
+            {!selected ? (
+              <div className="flex min-h-[420px] items-center justify-center text-sm text-black/55">
+                Selecione um pedido para visualizar o relatório.
               </div>
+            ) : (
+              <>
+                <div className="flex flex-col gap-4 border-b border-black/10 pb-5 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="text-2xl font-bold text-black">
+                      VENDA N°{shortId(selected.id)}
+                    </div>
+                    <div className="mt-1 text-sm text-black/55">
+                      {formatPdfDate(selected.criado_em)}
+                    </div>
+                  </div>
 
-              <div className="mt-6 grid gap-4 md:grid-cols-2">
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-xs font-bold uppercase tracking-wide text-zinc-500">
-                    Cliente
-                  </div>
-                  <div className="mt-2 text-lg font-bold text-zinc-900">
-                    {selected.cliente_nome}
-                  </div>
-                  <div className="mt-1 text-sm text-zinc-600">
-                    {selected.cliente_telefone || 'Sem telefone'}
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-2xl border border-black/10 bg-white px-4 py-2 text-sm text-black/70"
+                    >
+                      <Eye size={16} />
+                      Visualizando
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => generatePedidoPdf(selected)}
+                      className="inline-flex items-center gap-2 rounded-2xl bg-[#16a34a] px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
+                    >
+                      <FileDown size={16} />
+                      Baixar PDF
+                    </button>
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-xs font-bold uppercase tracking-wide text-zinc-500">
-                    Resumo
+                <div className="mt-6 grid gap-4 md:grid-cols-2">
+                  <div className="rounded-2xl border border-black/10 bg-black/[0.03] p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-black/45">
+                      Cliente
+                    </div>
+                    <div className="mt-2 text-lg font-semibold text-black">
+                      {selected.cliente_nome || "Cliente sem nome"}
+                    </div>
+                    <div className="mt-1 text-sm text-black/60">
+                      {selected.cliente_telefone || "Sem telefone"}
+                    </div>
                   </div>
-                  <div className="mt-2 text-sm text-zinc-700">
-                    Itens: <span className="font-bold">{selected.itens.length}</span>
-                  </div>
-                  <div className="mt-1 text-sm text-zinc-700">
-                    Quantidade total:{' '}
-                    <span className="font-bold">
-                      {selected.itens.reduce((acc, item) => acc + item.quantidade, 0)}
-                    </span>
-                  </div>
-                  <div className="mt-2 text-lg font-extrabold text-zinc-900">
-                    {money(selected.total)}
+
+                  <div className="rounded-2xl border border-black/10 bg-black/[0.03] p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-black/45">
+                      Resumo
+                    </div>
+                    <div className="mt-2 text-sm text-black/70">
+                      Itens: <span className="font-semibold">{selected.itens.length}</span>
+                    </div>
+                    <div className="mt-1 text-sm text-black/70">
+                      Quantidade total:{" "}
+                      <span className="font-semibold">
+                        {selected.itens.reduce((acc, item) => acc + item.quantidade, 0)}
+                      </span>
+                    </div>
+                    <div className="mt-2 text-lg font-bold text-black">
+                      {formatBRL(selected.total)}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="mt-6 overflow-hidden rounded-2xl border border-zinc-200">
-                <div className="overflow-x-auto">
-                  <table className="min-w-full">
-                    <thead className="bg-zinc-50">
-                      <tr className="text-left text-xs font-bold uppercase tracking-wide text-zinc-500">
-                        <th className="px-4 py-3">Qtd</th>
-                        <th className="px-4 py-3">Produto</th>
-                        <th className="px-4 py-3">Unitário</th>
-                        <th className="px-4 py-3 text-right">Subtotal</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selected.itens.map((item) => (
-                        <tr key={item.id} className="border-t border-zinc-100">
-                          <td className="px-4 py-4 text-sm font-bold text-zinc-900">
-                            {item.quantidade}
-                          </td>
-                          <td className="px-4 py-4">
-                            <div className="text-sm font-semibold text-zinc-900">
-                              {item.produto_nome}
+                <div className="mt-6 overflow-hidden rounded-2xl border border-black/10">
+                  <div className="flex items-center justify-between gap-2 bg-black/5 px-4 py-3">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-black/70">
+                      <Package size={14} />
+                      Itens do pedido
+                    </div>
+                    <div className="text-xs text-black/45">
+                      {selected.itens.length} item(ns)
+                    </div>
+                  </div>
+
+                  {selected.itens.length === 0 ? (
+                    <div className="p-4 text-sm text-black/60">Nenhum item encontrado.</div>
+                  ) : (
+                    <div className="divide-y divide-black/10">
+                      {selected.itens.map((it) => (
+                        <div
+                          key={it.id}
+                          className="flex items-center justify-between gap-3 p-4"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-black">
+                              {it.produto_nome ?? it.produto_id}
                             </div>
-                            {item.produto_codigo ? (
-                              <div className="mt-1 text-xs text-zinc-500">
-                                Cód. {item.produto_codigo}
-                              </div>
-                            ) : null}
-                          </td>
-                          <td className="px-4 py-4 text-sm text-zinc-700">
-                            {money(item.preco_unitario)}
-                          </td>
-                          <td className="px-4 py-4 text-right text-sm font-extrabold text-zinc-900">
-                            {money(item.subtotal)}
-                          </td>
-                        </tr>
+                            <div className="mt-1 text-xs text-black/45">
+                              {it.quantidade}x • {formatBRL(it.preco_unitario)}
+                            </div>
+                          </div>
+
+                          <div className="shrink-0 text-sm font-semibold text-black">
+                            {formatBRL(it.subtotal)}
+                          </div>
+                        </div>
                       ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t border-zinc-200 bg-zinc-50">
-                        <td colSpan={3} className="px-4 py-4 text-right text-sm font-bold text-zinc-700">
-                          Total
-                        </td>
-                        <td className="px-4 py-4 text-right text-base font-extrabold text-zinc-900">
-                          {money(selected.total)}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                    </div>
+                  )}
                 </div>
-              </div>
-            </div>
-          )}
-        </div>
+              </>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );

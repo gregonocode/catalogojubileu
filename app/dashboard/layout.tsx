@@ -15,6 +15,7 @@ import {
   Tag,
   Volume2,
   VolumeX,
+  ChartSpline,
 } from "lucide-react";
 import toast, { Toaster } from "react-hot-toast";
 import { supabaseClient } from "@/lib/supabase/client";
@@ -62,6 +63,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       { label: "Lista de produtos", href: "/dashboard/produtos", icon: <List size={18} />, group: "Produtos" },
 
       { label: "Clientes", href: "/dashboard/clientes", icon: <Users size={18} />, group: "Gestão" },
+      { label: "Relatórios", href: "/dashboard/relatorios", icon: <ChartSpline size={18} />, group: "Gestão" },
       { label: "Pedidos", href: "/dashboard/pedidos", icon: <ReceiptText size={18} />, group: "Gestão" },
       { label: "Configuração", href: "/dashboard/configuracao", icon: <Settings size={18} />, group: "Gestão" },
     ],
