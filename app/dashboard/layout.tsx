@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
+import type { Metadata } from "next";
 import {
   LayoutDashboard,
   PlusCircle,
@@ -37,6 +38,11 @@ type NavItem = {
 type UsuarioConfigRow = {
   usuario_id: string;
   som_novo_pedido: boolean;
+};
+
+export const metadata: Metadata = {
+  manifest: "/dashboard-manifest.webmanifest",
+  themeColor: "#EB3410",
 };
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {

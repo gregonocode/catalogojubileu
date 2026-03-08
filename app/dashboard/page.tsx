@@ -1,7 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { TrendingUp, Users, ReceiptText, ChevronDown } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  TrendingUp,
+  Users,
+  ReceiptText,
+  ChevronDown,
+  Bell,
+  BellRing,
+} from "lucide-react";
 import { supabaseClient } from "@/lib/supabase/client";
 import toast from "react-hot-toast";
 
@@ -18,7 +25,7 @@ function Card({
   title: string;
   value: string;
   subtitle: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
 }) {
   return (
     <div className="rounded-3xl border border-black/10 bg-white p-5 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]">
@@ -63,6 +70,8 @@ type Cliente = {
 
 type PeriodoFiltro = "hoje" | "semana" | "mes" | "total";
 
+type PushPermissionState = NotificationPermission | "unsupported" | "checking";
+
 function startOfDayLocal(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
 }
@@ -87,13 +96,11 @@ function getPeriodoRange(periodo: PeriodoFiltro) {
   }
 
   if (periodo === "semana") {
-    // últimos 7 dias (inclui hoje)
     const from = startOfDayLocal(addDaysLocal(now, -6));
     return { from, to: tomorrowStart };
   }
 
   if (periodo === "mes") {
-    // últimos 30 dias (inclui hoje)
     const from = startOfDayLocal(addDaysLocal(now, -29));
     return { from, to: tomorrowStart };
   }
@@ -113,7 +120,7 @@ function statusBadgeClass(status: PedidoStatus) {
   if (status === "aprovado") return "bg-green-50 text-green-700 ring-green-200";
   if (status === "cancelado") return "bg-red-50 text-red-700 ring-red-200";
   if (status === "enviado_whatsapp") return "bg-white text-black/70 ring-black/10";
-  return "bg-black/5 text-black ring-black/10"; // rascunho
+  return "bg-black/5 text-black ring-black/10";
 }
 
 type StatusResumo = {
@@ -123,10 +130,24 @@ type StatusResumo = {
   total: number;
 };
 
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+
+  return outputArray;
+}
+
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   const [empresa, setEmpresa] = useState<Empresa | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const [produtosAtivos, setProdutosAtivos] = useState(0);
   const [categorias, setCategorias] = useState(0);
@@ -136,10 +157,16 @@ export default function DashboardPage() {
 
   const [periodo, setPeriodo] = useState<PeriodoFiltro>("semana");
 
-  const [vendasPeriodo, setVendasPeriodo] = useState<Array<{ status: string; total: number }>>([]);
+  const [vendasPeriodo, setVendasPeriodo] = useState<Array<{ status: string; total: number }>>(
+    []
+  );
 
   const [pedidosRecentes, setPedidosRecentes] = useState<PedidoRecente[]>([]);
   const [mapaClientes, setMapaClientes] = useState<Map<string, Cliente>>(new Map());
+
+  const [pushPermission, setPushPermission] = useState<PushPermissionState>("checking");
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
 
   const periodoLabel = useMemo(() => {
     if (periodo === "hoje") return "Hoje";
@@ -170,6 +197,136 @@ export default function DashboardPage() {
     return (part / resumoStatus.total) * 100;
   }
 
+  async function syncPushStatus() {
+    if (typeof window === "undefined") return;
+    if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+      setPushPermission("unsupported");
+      setPushEnabled(false);
+      return;
+    }
+
+    setPushPermission(Notification.permission);
+
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      setPushEnabled(Boolean(subscription));
+    } catch (err) {
+      console.error("Erro ao verificar push subscription:", err);
+      setPushEnabled(false);
+    }
+  }
+
+  async function enablePushNotifications() {
+    if (!empresa?.id || !currentUserId) {
+      toast.error("Empresa ou usuário não carregado ainda.");
+      return;
+    }
+
+    if (typeof window === "undefined") return;
+
+    if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+      setPushPermission("unsupported");
+      toast.error("Seu navegador não suporta notificações push.");
+      return;
+    }
+
+    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if (!vapidPublicKey) {
+      toast.error("Falta configurar NEXT_PUBLIC_VAPID_PUBLIC_KEY.");
+      return;
+    }
+
+    try {
+      setPushLoading(true);
+
+      const registration = await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.ready;
+
+      let permission = Notification.permission;
+
+      if (permission !== "granted") {
+        permission = await Notification.requestPermission();
+      }
+
+      setPushPermission(permission);
+
+      if (permission !== "granted") {
+        toast.error("Permissão de notificação não concedida.");
+        return;
+      }
+
+      let subscription = await registration.pushManager.getSubscription();
+
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+        });
+      }
+
+      const res = await fetch("/api/push/subscribe", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          empresa_id: empresa.id,
+          user_id: currentUserId,
+          subscription,
+        }),
+      });
+
+      const data = (await res.json().catch(() => null)) as
+        | { ok?: boolean; error?: string }
+        | null;
+
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error || "Falha ao salvar inscrição de notificação.");
+      }
+
+      setPushEnabled(true);
+      toast.success("Notificações ativadas com sucesso.");
+    } catch (err) {
+      console.error(err);
+      toast.error("Não foi possível ativar as notificações.");
+    } finally {
+      setPushLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function bootstrapPush() {
+      if (typeof window === "undefined") return;
+
+      if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+        if (mounted) {
+          setPushPermission("unsupported");
+          setPushEnabled(false);
+        }
+        return;
+      }
+
+      try {
+        await navigator.serviceWorker.register("/sw.js");
+        if (!mounted) return;
+
+        setPushPermission(Notification.permission);
+        await syncPushStatus();
+      } catch (err) {
+        console.error("Erro ao registrar service worker:", err);
+      }
+    }
+
+    bootstrapPush();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   useEffect(() => {
     let mounted = true;
 
@@ -184,8 +341,8 @@ export default function DashboardPage() {
         }
 
         const userId = userData.user.id;
+        if (mounted) setCurrentUserId(userId);
 
-        // empresa do dono
         const { data: emp, error: empErr } = await supabaseClient
           .from("empresas")
           .select("id, nome, whatsapp, slug")
@@ -204,7 +361,6 @@ export default function DashboardPage() {
 
         const empresaId = emp.id;
 
-        // período
         const range = getPeriodoRange(periodo);
         const fromIso = range.from ? toIsoForSupabase(range.from) : null;
         const toIso = range.to ? toIsoForSupabase(range.to) : null;
@@ -220,7 +376,6 @@ export default function DashboardPage() {
         const { data: vendasRows, error: vendasErr } = await vendasQuery;
         if (vendasErr) throw vendasErr;
 
-        // contadores + recentes em paralelo
         const [
           produtosAtivosRes,
           categoriasRes,
@@ -276,11 +431,9 @@ export default function DashboardPage() {
           .filter((v): v is string => typeof v === "string");
         setClientesUnicos(new Set(clientesIds).size);
 
-        // recentes
         const recentes = (pedidosRecentesRes.data ?? []) as PedidoRecente[];
         setPedidosRecentes(recentes);
 
-        // mapa clientes (para recentes)
         const recentClientIds = Array.from(
           new Set(recentes.map((p) => p.cliente_usuario_id).filter(Boolean))
         ) as string[];
@@ -337,7 +490,6 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* topo empresa + filtro */}
       <div className="rounded-3xl border border-black/10 bg-white p-5 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -348,13 +500,48 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <div className="rounded-2xl border border-black/10 bg-black/5 px-4 py-3">
               <div className="text-xs text-black/55">Produtos ativos</div>
               <div className="text-base font-semibold">{loading ? "—" : produtosAtivos}</div>
             </div>
 
-            {/* dropdown período */}
+            <button
+              type="button"
+              onClick={enablePushNotifications}
+              disabled={
+                pushLoading ||
+                pushPermission === "unsupported" ||
+                !empresa ||
+                !currentUserId ||
+                pushEnabled
+              }
+              className={cn(
+                "inline-flex h-[50px] items-center gap-2 rounded-2xl px-4 text-sm font-medium transition",
+                pushEnabled
+                  ? "border border-green-200 bg-green-50 text-green-700"
+                  : "border border-black/10 bg-white text-black/80 hover:bg-black/5",
+                (pushLoading || pushPermission === "unsupported" || !empresa || !currentUserId) &&
+                  "cursor-not-allowed opacity-60"
+              )}
+              title={
+                pushPermission === "unsupported"
+                  ? "Seu navegador não suporta notificações push"
+                  : pushEnabled
+                    ? "Notificações já ativadas"
+                    : "Ativar notificações"
+              }
+            >
+              {pushEnabled ? <BellRing size={16} /> : <Bell size={16} />}
+              {pushLoading
+                ? "Ativando..."
+                : pushPermission === "unsupported"
+                  ? "Sem suporte"
+                  : pushEnabled
+                    ? "Notificações ativas"
+                    : "Ativar notificações"}
+            </button>
+
             <div className="relative">
               <select
                 value={periodo}
@@ -367,13 +554,25 @@ export default function DashboardPage() {
                 <option value="mes">Este mês</option>
                 <option value="total">Todo período</option>
               </select>
-              <ChevronDown size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black/50" />
+              <ChevronDown
+                size={16}
+                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black/50"
+              />
             </div>
           </div>
         </div>
+
+        <div className="mt-3 text-xs text-black/55">
+          {pushPermission === "unsupported" && "Este navegador não suporta notificações push."}
+          {pushPermission === "default" &&
+            "Ative as notificações para receber aviso de novas vendas no app do dashboard."}
+          {pushPermission === "denied" &&
+            "As notificações foram bloqueadas no navegador. Libere manualmente nas permissões do site."}
+          {pushPermission === "granted" && pushEnabled && "Seu dashboard já está pronto para receber notificações."}
+          {pushPermission === "granted" && !pushEnabled && "Permissão concedida. Falta concluir a inscrição do dispositivo."}
+        </div>
       </div>
 
-      {/* cards principais */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Card
           title="Vendas (aprovadas)"
@@ -390,12 +589,11 @@ export default function DashboardPage() {
         <Card
           title="Pedidos"
           value={loading ? "—" : String(pedidosTotal)}
-          subtitle={loading ? "—" : `${pedidosPendentes} pendente(s)`} // rascunho + enviado
+          subtitle={loading ? "—" : `${pedidosPendentes} pendente(s)`}
           icon={<ReceiptText size={18} />}
         />
       </div>
 
-      {/* resumo por status + resumo */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2 rounded-3xl border border-black/10 bg-white p-5 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]">
           <div className="flex items-start justify-between gap-4">
@@ -494,7 +692,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* pedidos recentes */}
       <div className="rounded-3xl border border-black/10 bg-white p-5 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]">
         <div className="flex items-center justify-between">
           <div>
