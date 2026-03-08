@@ -265,17 +265,28 @@ export default function DashboardPage() {
         });
       }
 
-      const res = await fetch("/api/push/subscribe", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          empresa_id: empresa.id,
-          user_id: currentUserId,
-          subscription,
-        }),
-      });
+      const {
+  data: { session },
+} = await supabaseClient.auth.getSession();
+
+const accessToken = session?.access_token;
+
+if (!accessToken) {
+  throw new Error("Sessão inválida para registrar notificações.");
+}
+
+const res = await fetch("/api/push/subscribe", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${accessToken}`,
+  },
+  body: JSON.stringify({
+    empresa_id: empresa.id,
+    user_id: currentUserId,
+    subscription: subscription.toJSON(),
+  }),
+});
 
       const data = (await res.json().catch(() => null)) as
         | { ok?: boolean; error?: string }
