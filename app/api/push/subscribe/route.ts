@@ -159,11 +159,14 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("POST /api/push/subscribe error:", error);
+  console.error("POST /api/push/subscribe error:", error);
 
-    return NextResponse.json(
-      { ok: false, error: "internal_error" },
-      { status: 500 }
-    );
-  }
+  const message =
+    error instanceof Error ? error.message : "internal_error";
+
+  return NextResponse.json(
+    { ok: false, error: message },
+    { status: 500 }
+  );
+}
 }

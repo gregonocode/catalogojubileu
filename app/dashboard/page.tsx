@@ -12,6 +12,7 @@ import {
 import { supabaseClient } from "@/lib/supabase/client";
 import toast from "react-hot-toast";
 
+
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
@@ -288,23 +289,28 @@ const res = await fetch("/api/push/subscribe", {
   }),
 });
 
-      const data = (await res.json().catch(() => null)) as
-        | { ok?: boolean; error?: string }
-        | null;
+const data = (await res.json().catch(() => null)) as
+  | { ok?: boolean; error?: string }
+  | null;
 
-      if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || "Falha ao salvar inscrição de notificação.");
-      }
+if (!res.ok || !data?.ok) {
+  throw new Error(data?.error || `Erro ${res.status} ao salvar inscrição de notificação.`);
+}
 
-      setPushEnabled(true);
-      toast.success("Notificações ativadas com sucesso.");
-    } catch (err) {
-      console.error(err);
-      toast.error("Não foi possível ativar as notificações.");
-    } finally {
-      setPushLoading(false);
-    }
-  }
+setPushEnabled(true);
+toast.success("Notificações ativadas com sucesso.");
+} catch (err) {
+  console.error("enablePushNotifications error:", err);
+
+  const message =
+    err instanceof Error
+      ? err.message
+      : "Não foi possível ativar as notificações.";
+
+  toast.error(message);
+} finally {
+  setPushLoading(false);
+}
 
   useEffect(() => {
     let mounted = true;
@@ -773,4 +779,6 @@ const res = await fetch("/api/push/subscribe", {
       </div>
     </div>
   );
+} 
+
 }
