@@ -6,6 +6,11 @@ export const metadata: Metadata = {
   description: "Painel administrativo da Pneu Forte",
   manifest: "/dashboard/manifest.webmanifest",
   themeColor: "#EB3410",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Pneu Forte Admin",
+  },
 };
 
 export default function DashboardLayout({
