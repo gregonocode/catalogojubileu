@@ -4,7 +4,7 @@ import DashboardClientLayout from "./DashboardClientLayout";
 export const metadata: Metadata = {
   title: "Pneu Forte Admin",
   description: "Painel administrativo da Pneu Forte",
-  manifest: "/dashboard-manifest.webmanifest",
+  manifest: "/dashboard/manifest.webmanifest",
   themeColor: "#EB3410",
 };
 
