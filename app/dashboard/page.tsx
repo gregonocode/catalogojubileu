@@ -311,6 +311,7 @@ toast.success("Notificações ativadas com sucesso.");
 } finally {
   setPushLoading(false);
 }
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -781,4 +782,3 @@ toast.success("Notificações ativadas com sucesso.");
   );
 } 
 
-}
