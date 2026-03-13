@@ -71,14 +71,14 @@ type PedidoItem = {
 };
 
 type ClienteOption = {
-  id: string;
+  usuario_id: string;
   nome: string | null;
 };
 
-type ProdutoOption = {
+type ProdutoCatalogo = {
   id: string;
   nome: string;
-  preco: number;
+  preco: number | string;
   estoque: number;
   ativo: boolean;
 };
@@ -151,16 +151,15 @@ export default function PedidosPage() {
   const [empresaId, setEmpresaId] = useState<string | null>(null);
 
   const [manualOpen, setManualOpen] = useState(false);
-  const [loadingManualData, setLoadingManualData] = useState(false);
-  const [savingManual, setSavingManual] = useState(false);
+  const [creatingManual, setCreatingManual] = useState(false);
 
   const [clientes, setClientes] = useState<ClienteOption[]>([]);
-  const [produtosCadastro, setProdutosCadastro] = useState<ProdutoOption[]>([]);
+  const [produtosCatalogo, setProdutosCatalogo] = useState<ProdutoCatalogo[]>([]);
+  const [loadingManualData, setLoadingManualData] = useState(false);
 
   const [clienteBusca, setClienteBusca] = useState("");
   const [clienteSelecionadoId, setClienteSelecionadoId] = useState<string>("");
-
-  const [qtdManual, setQtdManual] = useState<Record<string, number>>({});
+  const [manualQtd, setManualQtd] = useState<Record<string, number>>({});
 
   const totalPedidos = useMemo(() => pedidos.length, [pedidos]);
   const totalPages = useMemo(() => Math.max(1, Math.ceil(totalCount / PAGE_SIZE)), [totalCount]);
@@ -180,58 +179,56 @@ export default function PedidosPage() {
   }, [pedidos]);
 
   const clientesFiltrados = useMemo(() => {
-    const termo = clienteBusca.trim().toLowerCase();
-    if (!termo) return clientes;
-    return clientes.filter((c) => (c.nome ?? "").toLowerCase().includes(termo));
+    const q = clienteBusca.trim().toLowerCase();
+    if (!q) return clientes;
+    return clientes.filter((c) => (c.nome ?? "").toLowerCase().includes(q));
   }, [clientes, clienteBusca]);
 
-  const itensManual = useMemo(() => {
-    return Object.entries(qtdManual)
+  const clienteSelecionado = useMemo(() => {
+    return clientes.find((c) => c.usuario_id === clienteSelecionadoId) ?? null;
+  }, [clientes, clienteSelecionadoId]);
+
+  const manualItens = useMemo(() => {
+    return Object.entries(manualQtd)
       .filter(([, quantidade]) => quantidade > 0)
       .map(([produtoId, quantidade]) => {
-        const produto = produtosCadastro.find((p) => p.id === produtoId);
+        const produto = produtosCatalogo.find((p) => p.id === produtoId);
         if (!produto) return null;
 
+        const preco = toNumber(produto.preco);
         return {
           produto,
           quantidade,
-          subtotal: quantidade * produto.preco,
+          subtotal: preco * quantidade,
         };
       })
       .filter(Boolean) as Array<{
-      produto: ProdutoOption;
+      produto: ProdutoCatalogo;
       quantidade: number;
       subtotal: number;
     }>;
-  }, [qtdManual, produtosCadastro]);
+  }, [manualQtd, produtosCatalogo]);
 
-  const totalManual = useMemo(() => {
-    return itensManual.reduce((acc, item) => acc + item.subtotal, 0);
-  }, [itensManual]);
-
-  async function getEmpresaId() {
-    if (empresaId) return empresaId;
-
-    const { data: empresas, error: empErr } = await supabaseClient
-      .from("empresas")
-      .select("id")
-      .order("criado_em", { ascending: true })
-      .limit(1);
-
-    if (empErr) throw empErr;
-
-    const id = empresas?.[0]?.id ?? null;
-    setEmpresaId(id);
-    return id;
-  }
+  const manualTotal = useMemo(() => {
+    return manualItens.reduce((acc, it) => acc + it.subtotal, 0);
+  }, [manualItens]);
 
   async function loadPedidos() {
     try {
       setLoading(true);
 
-      const currentEmpresaId = await getEmpresaId();
+      const { data: empresas, error: empErr } = await supabaseClient
+        .from("empresas")
+        .select("id")
+        .order("criado_em", { ascending: true })
+        .limit(1);
 
-      if (!currentEmpresaId) {
+      if (empErr) throw empErr;
+
+      const empresaIdFound = empresas?.[0]?.id ?? null;
+      setEmpresaId(empresaIdFound);
+
+      if (!empresaIdFound) {
         setPedidos([]);
         setTotalCount(0);
         return;
@@ -249,7 +246,7 @@ export default function PedidosPage() {
           `,
           { count: "exact" }
         )
-        .eq("empresa_id", currentEmpresaId)
+        .eq("empresa_id", empresaIdFound)
         .order("criado_em", { ascending: false })
         .range(from, to);
 
@@ -277,6 +274,38 @@ export default function PedidosPage() {
       setLoading(false);
     }
   }
+
+  async function loadManualData() {
+  if (!empresaId) return;
+
+  try {
+    setLoadingManualData(true);
+
+    const { data: clientesData, error: clientesErr } = await supabaseClient
+      .from("clientes")
+      .select("usuario_id, nome")
+      .order("nome", { ascending: true });
+
+    if (clientesErr) throw clientesErr;
+
+    const { data: produtosData, error: produtosErr } = await supabaseClient
+      .from("produtos")
+      .select("id, nome, preco, estoque, ativo")
+      .eq("empresa_id", empresaId)
+      .eq("ativo", true)
+      .order("nome", { ascending: true });
+
+    if (produtosErr) throw produtosErr;
+
+    setClientes((clientesData ?? []) as ClienteOption[]);
+    setProdutosCatalogo((produtosData ?? []) as ProdutoCatalogo[]);
+  } catch (err) {
+    console.error("Erro ao carregar dados do pedido manual:", err);
+    toast.error("Não foi possível carregar clientes e produtos.");
+  } finally {
+    setLoadingManualData(false);
+  }
+}
 
   async function loadItens(pedidoId: string) {
     if (itemsByPedido[pedidoId]?.length) return;
@@ -359,95 +388,45 @@ export default function PedidosPage() {
     }
   }
 
-  async function loadManualData() {
-    try {
-      setLoadingManualData(true);
-
-      const currentEmpresaId = await getEmpresaId();
-
-      if (!currentEmpresaId) {
-        toast.error("Empresa não encontrada.");
-        return;
-      }
-
-      const [{ data: clientesData, error: clientesErr }, { data: produtosData, error: produtosErr }] =
-        await Promise.all([
-          supabaseClient
-            .from("clientes")
-            .select("id, nome")
-            .order("nome", { ascending: true }),
-          supabaseClient
-            .from("produtos")
-            .select("id, nome, preco, estoque, ativo")
-            .eq("empresa_id", currentEmpresaId)
-            .eq("ativo", true)
-            .order("nome", { ascending: true }),
-        ]);
-
-      if (clientesErr) throw clientesErr;
-      if (produtosErr) throw produtosErr;
-
-      setClientes((clientesData ?? []) as ClienteOption[]);
-      setProdutosCadastro(
-        ((produtosData ?? []) as Array<{
-          id: string;
-          nome: string;
-          preco: number | string;
-          estoque: number;
-          ativo: boolean;
-        }>).map((p) => ({
-          id: p.id,
-          nome: p.nome,
-          preco: toNumber(p.preco),
-          estoque: Number(p.estoque) || 0,
-          ativo: Boolean(p.ativo),
-        }))
-      );
-    } catch (err) {
-      console.error(err);
-      toast.error("Não foi possível carregar clientes e produtos.");
-    } finally {
-      setLoadingManualData(false);
-    }
-  }
-
   function openManualModal() {
     setManualOpen(true);
     setClienteBusca("");
     setClienteSelecionadoId("");
-    setQtdManual({});
-    void loadManualData();
+    setManualQtd({});
+    if (!clientes.length || !produtosCatalogo.length) {
+      void loadManualData();
+    }
   }
 
   function closeManualModal() {
-    if (savingManual) return;
+    if (creatingManual) return;
     setManualOpen(false);
   }
 
-  function incManual(produto: ProdutoOption) {
-    setQtdManual((prev) => {
-      const atual = prev[produto.id] ?? 0;
-      const proximo = atual + 1;
+  function incManual(produto: ProdutoCatalogo) {
+    setManualQtd((prev) => {
+      const current = prev[produto.id] ?? 0;
+      const next = current + 1;
 
       if (produto.estoque === 0) return prev;
-      if (produto.estoque > 0 && proximo > produto.estoque) return prev;
+      if (produto.estoque > 0 && next > produto.estoque) return prev;
 
-      return { ...prev, [produto.id]: proximo };
+      return { ...prev, [produto.id]: next };
     });
   }
 
-  function decManual(produto: ProdutoOption) {
-    setQtdManual((prev) => {
-      const atual = prev[produto.id] ?? 0;
-      const proximo = Math.max(0, atual - 1);
-      return { ...prev, [produto.id]: proximo };
+  function decManual(produto: ProdutoCatalogo) {
+    setManualQtd((prev) => {
+      const current = prev[produto.id] ?? 0;
+      const next = Math.max(0, current - 1);
+      return { ...prev, [produto.id]: next };
     });
   }
 
-  function setExactManual(produto: ProdutoOption, value: number) {
+  function setExactManual(produto: ProdutoCatalogo, value: number) {
     const v = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 
-    setQtdManual((prev) => {
+    setManualQtd((prev) => {
       if (produto.estoque === 0) return prev;
       if (produto.estoque > 0 && v > produto.estoque) {
         return { ...prev, [produto.id]: produto.estoque };
@@ -457,32 +436,30 @@ export default function PedidosPage() {
   }
 
   async function criarPedidoManual() {
+    if (!empresaId) {
+      toast.error("Empresa não encontrada.");
+      return;
+    }
+
+    if (!clienteSelecionadoId) {
+      toast.error("Selecione um cliente.");
+      return;
+    }
+
+    if (manualItens.length === 0) {
+      toast.error("Escolha pelo menos 1 produto.");
+      return;
+    }
+
     try {
-      const currentEmpresaId = await getEmpresaId();
+      setCreatingManual(true);
 
-      if (!currentEmpresaId) {
-        toast.error("Empresa não encontrada.");
-        return;
-      }
-
-      if (!clienteSelecionadoId) {
-        toast.error("Selecione um cliente.");
-        return;
-      }
-
-      if (itensManual.length === 0) {
-        toast.error("Adicione pelo menos 1 produto.");
-        return;
-      }
-
-      setSavingManual(true);
-
-      const total = totalManual;
+      const total = manualItens.reduce((acc, it) => acc + it.subtotal, 0);
 
       const { data: pedidoCriado, error: pedidoErr } = await supabaseClient
         .from("pedidos")
         .insert({
-          empresa_id: currentEmpresaId,
+          empresa_id: empresaId,
           cliente_usuario_id: clienteSelecionadoId,
           status: "rascunho",
           total,
@@ -494,33 +471,41 @@ export default function PedidosPage() {
 
       const pedidoId = pedidoCriado.id as string;
 
-      const itensInsert = itensManual.map((item) => ({
+      const itensInsert = manualItens.map((it) => ({
         pedido_id: pedidoId,
-        produto_id: item.produto.id,
-        quantidade: item.quantidade,
-        preco_unitario: item.produto.preco,
-        subtotal: item.subtotal,
+        produto_id: it.produto.id,
+        quantidade: it.quantidade,
+        preco_unitario: toNumber(it.produto.preco),
+        subtotal: it.subtotal,
       }));
 
-      const { error: itensErr } = await supabaseClient.from("pedidos_itens").insert(itensInsert);
+      const { error: itensErr } = await supabaseClient
+        .from("pedidos_itens")
+        .insert(itensInsert);
 
       if (itensErr) throw itensErr;
 
-      toast.success("Pedido manual criado com sucesso!");
+      const { error: aprovarErr } = await supabaseClient.rpc("rpc_aprovar_pedido", {
+        p_pedido_id: pedidoId,
+      });
+
+      if (aprovarErr) {
+        console.error(aprovarErr);
+        toast.success("Pedido manual criado, mas ficou pendente para aprovação.");
+      } else {
+        toast.success("Pedido manual criado e aprovado com sucesso!");
+      }
+
       setManualOpen(false);
-      setQtdManual({});
       setClienteBusca("");
       setClienteSelecionadoId("");
-
-      setPage(1);
+      setManualQtd({});
       await loadPedidos();
-      await loadItens(pedidoId);
-      setExpanded((prev) => ({ ...prev, [pedidoId]: true }));
     } catch (err) {
       console.error(err);
       toast.error("Não foi possível criar o pedido manual.");
     } finally {
-      setSavingManual(false);
+      setCreatingManual(false);
     }
   }
 
@@ -529,257 +514,16 @@ export default function PedidosPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
+  useEffect(() => {
+    if (manualOpen && empresaId) {
+      void loadManualData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manualOpen, empresaId]);
+
   return (
     <div className="min-h-screen bg-white text-[#0f172a]">
       <Toaster position="top-right" />
-
-      {manualOpen && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
-          <div className="flex h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl">
-            <div className="flex items-center justify-between border-b border-black/10 px-5 py-4 sm:px-6">
-              <div>
-                <div className="text-lg font-semibold text-black">Criar pedido manual</div>
-                <div className="text-sm text-black/55">
-                  Selecione o cliente, marque os produtos e defina as quantidades.
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={closeManualModal}
-                className="grid h-10 w-10 place-items-center rounded-2xl border border-black/10 bg-white hover:bg-black/5"
-                aria-label="Fechar"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
-              {loadingManualData ? (
-                <div className="space-y-4">
-                  <div className="h-5 w-48 rounded bg-black/5" />
-                  <div className="h-11 w-full rounded-2xl bg-black/5" />
-                  <div className="h-5 w-56 rounded bg-black/5" />
-                  <div className="h-32 w-full rounded-3xl bg-black/5" />
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-                  <div className="space-y-6">
-                    <section className="rounded-3xl border border-black/10 bg-white p-4">
-                      <div className="text-sm font-semibold text-black">Cliente</div>
-                      <div className="mt-1 text-xs text-black/50">
-                        Busque pelo nome e selecione um cliente cadastrado.
-                      </div>
-
-                      <input
-                        type="text"
-                        value={clienteBusca}
-                        onChange={(e) => setClienteBusca(e.target.value)}
-                        placeholder="Buscar cliente pelo nome"
-                        className="mt-4 h-11 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-black/20"
-                      />
-
-                      <div className="mt-3 max-h-56 overflow-y-auto rounded-2xl border border-black/10">
-                        {clientesFiltrados.length === 0 ? (
-                          <div className="p-4 text-sm text-black/60">Nenhum cliente encontrado.</div>
-                        ) : (
-                          <div className="divide-y divide-black/10">
-                            {clientesFiltrados.map((cliente) => {
-                              const ativo = clienteSelecionadoId === cliente.id;
-
-                              return (
-                                <button
-                                  key={cliente.id}
-                                  type="button"
-                                  onClick={() => setClienteSelecionadoId(cliente.id)}
-                                  className={cn(
-                                    "flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-black/5",
-                                    ativo && "bg-black/5"
-                                  )}
-                                >
-                                  <div className="min-w-0">
-                                    <div className="truncate text-sm font-medium text-black">
-                                      {cliente.nome?.trim() || "Cliente sem nome"}
-                                    </div>
-                                    <div className="mt-1 text-xs text-black/45">
-                                      #{shortId(cliente.id)}
-                                    </div>
-                                  </div>
-
-                                  <div
-                                    className={cn(
-                                      "h-4 w-4 rounded-full border",
-                                      ativo ? "border-black bg-black" : "border-black/20 bg-white"
-                                    )}
-                                  />
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    </section>
-
-                    <section className="rounded-3xl border border-black/10 bg-white p-4">
-                      <div className="text-sm font-semibold text-black">Produtos</div>
-                      <div className="mt-1 text-xs text-black/50">
-                        Ajuste as quantidades dos itens que entrarão no pedido.
-                      </div>
-
-                      <div className="mt-4 space-y-3">
-                        {produtosCadastro.length === 0 ? (
-                          <div className="rounded-2xl border border-black/10 p-4 text-sm text-black/60">
-                            Nenhum produto ativo encontrado.
-                          </div>
-                        ) : (
-                          produtosCadastro.map((produto) => {
-                            const q = qtdManual[produto.id] ?? 0;
-                            const semEstoque = produto.estoque === 0;
-
-                            return (
-                              <div
-                                key={produto.id}
-                                className="rounded-3xl border border-black/10 bg-white p-4"
-                              >
-                                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                                  <div className="min-w-0">
-                                    <div className="text-sm font-semibold text-black">
-                                      {produto.nome}
-                                    </div>
-
-                                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                                      <span className="rounded-full border border-black/10 bg-black/5 px-3 py-1 text-xs font-semibold text-black">
-                                        {formatBRL(produto.preco)}
-                                      </span>
-
-                                      <span className="rounded-full border border-black/10 bg-white px-3 py-1 text-xs text-black/60">
-                                        {semEstoque ? "Sem estoque" : `Estoque: ${produto.estoque}`}
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  <div className="w-full sm:w-auto">
-                                    <div className="mb-2 text-xs text-black/55 sm:text-right">
-                                      Quantidade
-                                    </div>
-
-                                    <div className="flex items-center gap-2 rounded-2xl border border-black/10 bg-white p-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => decManual(produto)}
-                                        disabled={q <= 0}
-                                        className="grid h-11 w-11 place-items-center rounded-xl border border-black/10 bg-white hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50"
-                                        aria-label="Diminuir"
-                                      >
-                                        <Minus size={18} />
-                                      </button>
-
-                                      <input
-                                        value={q}
-                                        onChange={(e) =>
-                                          setExactManual(produto, Number(e.target.value))
-                                        }
-                                        inputMode="numeric"
-                                        className="h-11 w-16 rounded-xl border border-black/10 bg-white text-center text-sm outline-none"
-                                      />
-
-                                      <button
-                                        type="button"
-                                        onClick={() => incManual(produto)}
-                                        disabled={semEstoque || (produto.estoque > 0 && q >= produto.estoque)}
-                                        className="grid h-11 w-11 place-items-center rounded-xl border border-black/10 bg-white hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50"
-                                        aria-label="Aumentar"
-                                      >
-                                        <Plus size={18} />
-                                      </button>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    </section>
-                  </div>
-
-                  <div>
-                    <section className="sticky top-0 rounded-3xl border border-black/10 bg-white p-4 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]">
-                      <div className="flex items-center gap-2">
-                        <div className="grid h-10 w-10 place-items-center rounded-2xl border border-black/10 bg-black/5">
-                          <Package size={18} />
-                        </div>
-                        <div>
-                          <div className="text-sm font-semibold text-black">Resumo do pedido</div>
-                          <div className="text-xs text-black/55">
-                            {itensManual.length} item(ns) selecionado(s)
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 rounded-2xl border border-black/10 bg-black/5 px-4 py-3">
-                        <div className="text-xs text-black/55">Cliente selecionado</div>
-                        <div className="mt-1 text-sm font-medium text-black">
-                          {clientes.find((c) => c.id === clienteSelecionadoId)?.nome?.trim() ||
-                            "Nenhum cliente selecionado"}
-                        </div>
-                      </div>
-
-                      {itensManual.length === 0 ? (
-                        <div className="mt-4 rounded-2xl border border-black/10 p-4 text-sm text-black/60">
-                          Escolha os produtos e defina as quantidades.
-                        </div>
-                      ) : (
-                        <div className="mt-4 overflow-hidden rounded-2xl border border-black/10">
-                          <div className="divide-y divide-black/10">
-                            {itensManual.map((item) => (
-                              <div
-                                key={item.produto.id}
-                                className="flex items-center justify-between gap-3 p-4"
-                              >
-                                <div className="min-w-0">
-                                  <div className="truncate text-sm font-medium text-black">
-                                    {item.produto.nome}
-                                  </div>
-                                  <div className="mt-1 text-xs text-black/45">
-                                    {item.quantidade}x • {formatBRL(item.produto.preco)}
-                                  </div>
-                                </div>
-
-                                <div className="shrink-0 text-sm font-semibold text-black">
-                                  {formatBRL(item.subtotal)}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="mt-4 flex items-center justify-between rounded-2xl border border-black/10 bg-white px-4 py-3">
-                        <div>
-                          <div className="text-xs text-black/55">Total</div>
-                          <div className="text-lg font-semibold text-black">
-                            {formatBRL(totalManual)}
-                          </div>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={criarPedidoManual}
-                        disabled={savingManual || !clienteSelecionadoId || itensManual.length === 0}
-                        className="mt-4 h-12 w-full rounded-2xl bg-[#EB3410] px-4 text-sm font-semibold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {savingManual ? "Salvando..." : "Concluir pedido manual"}
-                      </button>
-                    </section>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       <div className="mx-auto w-full max-w-5xl px-4 py-6">
         <section className="rounded-3xl border border-black/10 bg-white p-6 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.25)]">
@@ -926,7 +670,7 @@ export default function PedidosPage() {
                           <div className="text-xs text-black/45">
                             {loadingItems[p.id]
                               ? "Carregando..."
-                              : `${itemsByPedido[p.id]?.length ?? 0} item(ns)`}
+                              : `${(itemsByPedido[p.id]?.length ?? 0)} item(ns)`}
                           </div>
                         </div>
 
@@ -997,6 +741,226 @@ export default function PedidosPage() {
           )}
         </section>
       </div>
+
+      {manualOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
+          <div className="max-h-[92vh] w-full max-w-4xl overflow-hidden rounded-t-3xl border border-black/10 bg-white shadow-2xl sm:rounded-3xl">
+            <div className="flex items-center justify-between border-b border-black/10 px-5 py-4">
+              <div>
+                <div className="text-lg font-semibold text-black">Criar pedido manual</div>
+                <div className="text-sm text-black/55">
+                  Selecione um cliente e os produtos do pedido
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeManualModal}
+                className="grid h-10 w-10 place-items-center rounded-2xl border border-black/10 bg-white hover:bg-black/5"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="grid max-h-[calc(92vh-72px)] grid-cols-1 gap-0 overflow-y-auto lg:grid-cols-[1.05fr_1.2fr]">
+              <div className="border-b border-black/10 p-5 lg:border-b-0 lg:border-r">
+                <div className="text-sm font-semibold text-black">Cliente</div>
+
+                <input
+                  value={clienteBusca}
+                  onChange={(e) => setClienteBusca(e.target.value)}
+                  placeholder="Buscar cliente pelo nome"
+                  className="mt-3 h-11 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-black/20"
+                />
+
+                <div className="mt-3 max-h-64 space-y-2 overflow-y-auto">
+                  {loadingManualData ? (
+                    <div className="rounded-2xl border border-black/10 bg-white p-4 text-sm text-black/60">
+                      Carregando clientes...
+                    </div>
+                  ) : clientesFiltrados.length === 0 ? (
+                    <div className="rounded-2xl border border-black/10 bg-white p-4 text-sm text-black/60">
+                      Nenhum cliente encontrado.
+                    </div>
+                  ) : (
+                    clientesFiltrados.map((cliente) => {
+                      const active = cliente.usuario_id === clienteSelecionadoId;
+                      return (
+                        <button
+                          key={cliente.usuario_id}
+                          type="button"
+                          onClick={() => setClienteSelecionadoId(cliente.usuario_id)}
+                          className={cn(
+                            "w-full rounded-2xl border p-3 text-left transition",
+                            active
+                              ? "border-[#EB3410] bg-[#EB3410]/5"
+                              : "border-black/10 bg-white hover:bg-black/5"
+                          )}
+                        >
+                          <div className="text-sm font-medium text-black">
+                            {cliente.nome?.trim() || "Cliente sem nome"}
+                          </div>
+                          <div className="mt-1 text-xs text-black/45">
+                            {shortId(cliente.usuario_id)}
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+
+                <div className="mt-5 rounded-2xl border border-black/10 bg-black/5 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-black/55">
+                    Cliente selecionado
+                  </div>
+                  <div className="mt-2 text-sm font-semibold text-black">
+                    {clienteSelecionado?.nome?.trim() || "Nenhum cliente selecionado"}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-5">
+                <div className="text-sm font-semibold text-black">Produtos</div>
+
+                <div className="mt-3 space-y-3">
+                  {loadingManualData ? (
+                    <div className="rounded-2xl border border-black/10 bg-white p-4 text-sm text-black/60">
+                      Carregando produtos...
+                    </div>
+                  ) : produtosCatalogo.length === 0 ? (
+                    <div className="rounded-2xl border border-black/10 bg-white p-4 text-sm text-black/60">
+                      Nenhum produto ativo encontrado.
+                    </div>
+                  ) : (
+                    produtosCatalogo.map((produto) => {
+                      const q = manualQtd[produto.id] ?? 0;
+                      const semEstoque = produto.estoque === 0;
+
+                      return (
+                        <div
+                          key={produto.id}
+                          className="rounded-2xl border border-black/10 bg-white p-4"
+                        >
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-black">
+                                {produto.nome}
+                              </div>
+                              <div className="mt-1 flex flex-wrap items-center gap-2">
+                                <span className="rounded-full border border-black/10 bg-black/5 px-3 py-1 text-xs font-semibold text-black">
+                                  {formatBRL(toNumber(produto.preco))}
+                                </span>
+                                <span className="rounded-full border border-black/10 bg-white px-3 py-1 text-xs text-black/60">
+                                  {semEstoque ? "Sem estoque" : `Estoque: ${produto.estoque}`}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="w-full sm:w-auto">
+                              <div className="flex items-center gap-2 rounded-2xl border border-black/10 bg-white p-2">
+                                <button
+                                  type="button"
+                                  onClick={() => decManual(produto)}
+                                  disabled={q <= 0}
+                                  className="grid h-10 w-10 place-items-center rounded-xl border border-black/10 bg-white hover:bg-black/5 disabled:opacity-50"
+                                >
+                                  <Minus size={16} />
+                                </button>
+
+                                <input
+                                  value={q}
+                                  onChange={(e) => setExactManual(produto, Number(e.target.value))}
+                                  inputMode="numeric"
+                                  className="h-10 w-16 rounded-xl border border-black/10 bg-white text-center text-sm outline-none"
+                                />
+
+                                <button
+                                  type="button"
+                                  onClick={() => incManual(produto)}
+                                  disabled={semEstoque || (produto.estoque > 0 && q >= produto.estoque)}
+                                  className="grid h-10 w-10 place-items-center rounded-xl border border-black/10 bg-white hover:bg-black/5 disabled:opacity-50"
+                                >
+                                  <Plus size={16} />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                <div className="mt-5 rounded-3xl border border-black/10 bg-black/5 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-black">Resumo do pedido</div>
+                      <div className="text-xs text-black/55">
+                        {manualItens.length} item(ns) selecionado(s)
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <div className="text-xs text-black/55">Total</div>
+                      <div className="text-lg font-semibold text-black">
+                        {formatBRL(manualTotal)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {manualItens.length > 0 && (
+                    <div className="mt-4 overflow-hidden rounded-2xl border border-black/10 bg-white">
+                      <div className="divide-y divide-black/10">
+                        {manualItens.map((it) => (
+                          <div
+                            key={it.produto.id}
+                            className="flex items-center justify-between gap-3 p-4"
+                          >
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-medium text-black">
+                                {it.produto.nome}
+                              </div>
+                              <div className="mt-1 text-xs text-black/45">
+                                {it.quantidade}x • {formatBRL(toNumber(it.produto.preco))}
+                              </div>
+                            </div>
+
+                            <div className="shrink-0 text-sm font-semibold text-black">
+                              {formatBRL(it.subtotal)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      onClick={closeManualModal}
+                      disabled={creatingManual}
+                      className="rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm font-medium text-black/70 hover:bg-black/5 disabled:opacity-50"
+                    >
+                      Fechar
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={criarPedidoManual}
+                      disabled={creatingManual || !clienteSelecionadoId || manualItens.length === 0}
+                      className="rounded-2xl bg-[#EB3410] px-4 py-3 text-sm font-semibold text-white hover:brightness-95 disabled:opacity-50"
+                    >
+                      {creatingManual ? "Criando..." : "Concluir pedido manual"}
+                    </button>
+                  </div>
+
+                  
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
