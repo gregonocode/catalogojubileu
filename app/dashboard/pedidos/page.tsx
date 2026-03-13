@@ -435,79 +435,68 @@ export default function PedidosPage() {
     });
   }
 
-  async function criarPedidoManual() {
-    if (!empresaId) {
-      toast.error("Empresa não encontrada.");
-      return;
-    }
+async function criarPedidoManual() {
+  if (!empresaId) {
+    toast.error("Empresa não encontrada.");
+    return;
+  }
 
-    if (!clienteSelecionadoId) {
-      toast.error("Selecione um cliente.");
-      return;
-    }
+  if (!clienteSelecionadoId) {
+    toast.error("Selecione um cliente.");
+    return;
+  }
 
-    if (manualItens.length === 0) {
-      toast.error("Escolha pelo menos 1 produto.");
-      return;
-    }
+  if (manualItens.length === 0) {
+    toast.error("Escolha pelo menos 1 produto.");
+    return;
+  }
 
-    try {
-      setCreatingManual(true);
+  try {
+    setCreatingManual(true);
 
-      const total = manualItens.reduce((acc, it) => acc + it.subtotal, 0);
-
-      const { data: pedidoCriado, error: pedidoErr } = await supabaseClient
-        .from("pedidos")
-        .insert({
-          empresa_id: empresaId,
-          cliente_usuario_id: clienteSelecionadoId,
-          status: "rascunho",
-          total,
-        })
-        .select("id")
-        .single();
-
-      if (pedidoErr) throw pedidoErr;
-
-      const pedidoId = pedidoCriado.id as string;
-
-      const itensInsert = manualItens.map((it) => ({
-        pedido_id: pedidoId,
+    const { data, error } = await supabaseClient.rpc("rpc_criar_pedido_manual", {
+      p_empresa_id: empresaId,
+      p_cliente_usuario_id: clienteSelecionadoId,
+      p_itens: manualItens.map((it) => ({
         produto_id: it.produto.id,
         quantidade: it.quantidade,
-        preco_unitario: toNumber(it.produto.preco),
-        subtotal: it.subtotal,
-      }));
+      })),
+    });
 
-      const { error: itensErr } = await supabaseClient
-        .from("pedidos_itens")
-        .insert(itensInsert);
+    if (error) throw error;
 
-      if (itensErr) throw itensErr;
+    const pedidoId =
+      Array.isArray(data) && data.length > 0
+        ? String((data[0] as { pedido_id: string }).pedido_id)
+        : "";
 
-      const { error: aprovarErr } = await supabaseClient.rpc("rpc_aprovar_pedido", {
-        p_pedido_id: pedidoId,
-      });
-
-      if (aprovarErr) {
-        console.error(aprovarErr);
-        toast.success("Pedido manual criado, mas ficou pendente para aprovação.");
-      } else {
-        toast.success("Pedido manual criado e aprovado com sucesso!");
-      }
-
-      setManualOpen(false);
-      setClienteBusca("");
-      setClienteSelecionadoId("");
-      setManualQtd({});
-      await loadPedidos();
-    } catch (err) {
-      console.error(err);
-      toast.error("Não foi possível criar o pedido manual.");
-    } finally {
-      setCreatingManual(false);
+    if (!pedidoId) {
+      throw new Error("Pedido criado sem retorno de ID.");
     }
+
+    const { error: aprovarErr } = await supabaseClient.rpc("rpc_aprovar_pedido", {
+      p_pedido_id: pedidoId,
+    });
+
+    if (aprovarErr) {
+      console.error("Erro ao aprovar pedido manual:", aprovarErr);
+      toast.success("Pedido manual criado, mas ficou pendente para aprovação.");
+    } else {
+      toast.success("Pedido manual criado e aprovado com sucesso!");
+    }
+
+    setManualOpen(false);
+    setClienteBusca("");
+    setClienteSelecionadoId("");
+    setManualQtd({});
+    await loadPedidos();
+  } catch (err) {
+    console.error("Erro ao criar pedido manual:", err);
+    toast.error("Não foi possível criar o pedido manual.");
+  } finally {
+    setCreatingManual(false);
   }
+}
 
   useEffect(() => {
     loadPedidos();
