@@ -474,16 +474,7 @@ async function criarPedidoManual() {
       throw new Error("Pedido criado sem retorno de ID.");
     }
 
-    const { error: aprovarErr } = await supabaseClient.rpc("rpc_aprovar_pedido", {
-      p_pedido_id: pedidoId,
-    });
-
-    if (aprovarErr) {
-      console.error("Erro ao aprovar pedido manual:", aprovarErr);
-      toast.success("Pedido manual criado, mas ficou pendente para aprovação.");
-    } else {
-      toast.success("Pedido manual criado e aprovado com sucesso!");
-    }
+    toast.success("Pedido manual criado com sucesso!");
 
     setManualOpen(false);
     setClienteBusca("");
@@ -497,6 +488,8 @@ async function criarPedidoManual() {
     setCreatingManual(false);
   }
 }
+
+
 
   useEffect(() => {
     loadPedidos();
