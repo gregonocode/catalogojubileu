@@ -1,4 +1,3 @@
-// app/dashboard/pedidos/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -10,6 +9,9 @@ import {
   ChevronDown,
   ChevronUp,
   Package,
+  Plus,
+  Minus,
+  X,
 } from "lucide-react";
 
 const PAGE_SIZE = 10;
@@ -30,7 +32,6 @@ type PedidoRow = {
   total: number | string;
   criado_em: string;
   atualizado_em: string;
-  // ⚠️ pode vir como array
   clientes?: ClienteEmbed | ClienteEmbed[] | null;
 };
 
@@ -67,6 +68,19 @@ type PedidoItem = {
   subtotal: number;
   criado_em: string;
   produto_nome: string | null;
+};
+
+type ClienteOption = {
+  id: string;
+  nome: string | null;
+};
+
+type ProdutoOption = {
+  id: string;
+  nome: string;
+  preco: number;
+  estoque: number;
+  ativo: boolean;
 };
 
 function toNumber(v: number | string) {
@@ -109,7 +123,6 @@ function statusLabel(status: string) {
   return status;
 }
 
-// 0 = aparece em cima / 1 = embaixo
 function statusRank(status: string): number {
   return isFinalizado(status) ? 1 : 0;
 }
@@ -129,14 +142,29 @@ function pickProdutoNome(v: ProdutoEmbed | ProdutoEmbed[] | null | undefined) {
 export default function PedidosPage() {
   const [loading, setLoading] = useState(true);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
-  const [page, setPage] = useState(1); // 1-based
+  const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [itemsByPedido, setItemsByPedido] = useState<Record<string, PedidoItem[]>>({});
   const [loadingItems, setLoadingItems] = useState<Record<string, boolean>>({});
 
+  const [empresaId, setEmpresaId] = useState<string | null>(null);
+
+  const [manualOpen, setManualOpen] = useState(false);
+  const [loadingManualData, setLoadingManualData] = useState(false);
+  const [savingManual, setSavingManual] = useState(false);
+
+  const [clientes, setClientes] = useState<ClienteOption[]>([]);
+  const [produtosCadastro, setProdutosCadastro] = useState<ProdutoOption[]>([]);
+
+  const [clienteBusca, setClienteBusca] = useState("");
+  const [clienteSelecionadoId, setClienteSelecionadoId] = useState<string>("");
+
+  const [qtdManual, setQtdManual] = useState<Record<string, number>>({});
+
   const totalPedidos = useMemo(() => pedidos.length, [pedidos]);
   const totalPages = useMemo(() => Math.max(1, Math.ceil(totalCount / PAGE_SIZE)), [totalCount]);
+
   const pedidosOrdenados = useMemo(() => {
     const copy = [...pedidos];
     copy.sort((a, b) => {
@@ -151,21 +179,59 @@ export default function PedidosPage() {
     return copy;
   }, [pedidos]);
 
+  const clientesFiltrados = useMemo(() => {
+    const termo = clienteBusca.trim().toLowerCase();
+    if (!termo) return clientes;
+    return clientes.filter((c) => (c.nome ?? "").toLowerCase().includes(termo));
+  }, [clientes, clienteBusca]);
+
+  const itensManual = useMemo(() => {
+    return Object.entries(qtdManual)
+      .filter(([, quantidade]) => quantidade > 0)
+      .map(([produtoId, quantidade]) => {
+        const produto = produtosCadastro.find((p) => p.id === produtoId);
+        if (!produto) return null;
+
+        return {
+          produto,
+          quantidade,
+          subtotal: quantidade * produto.preco,
+        };
+      })
+      .filter(Boolean) as Array<{
+      produto: ProdutoOption;
+      quantidade: number;
+      subtotal: number;
+    }>;
+  }, [qtdManual, produtosCadastro]);
+
+  const totalManual = useMemo(() => {
+    return itensManual.reduce((acc, item) => acc + item.subtotal, 0);
+  }, [itensManual]);
+
+  async function getEmpresaId() {
+    if (empresaId) return empresaId;
+
+    const { data: empresas, error: empErr } = await supabaseClient
+      .from("empresas")
+      .select("id")
+      .order("criado_em", { ascending: true })
+      .limit(1);
+
+    if (empErr) throw empErr;
+
+    const id = empresas?.[0]?.id ?? null;
+    setEmpresaId(id);
+    return id;
+  }
+
   async function loadPedidos() {
     try {
       setLoading(true);
 
-      // 1) pega a empresa do dono logado
-      const { data: empresas, error: empErr } = await supabaseClient
-        .from("empresas")
-        .select("id")
-        .order("criado_em", { ascending: true })
-        .limit(1);
+      const currentEmpresaId = await getEmpresaId();
 
-      if (empErr) throw empErr;
-
-      const empresaId = empresas?.[0]?.id;
-      if (!empresaId) {
+      if (!currentEmpresaId) {
         setPedidos([]);
         setTotalCount(0);
         return;
@@ -174,7 +240,6 @@ export default function PedidosPage() {
       const from = (page - 1) * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
 
-      // 2) busca pedidos só dessa empresa
       const { data, count, error } = await supabaseClient
         .from("pedidos")
         .select(
@@ -184,7 +249,7 @@ export default function PedidosPage() {
           `,
           { count: "exact" }
         )
-        .eq("empresa_id", empresaId)
+        .eq("empresa_id", currentEmpresaId)
         .order("criado_em", { ascending: false })
         .range(from, to);
 
@@ -294,6 +359,171 @@ export default function PedidosPage() {
     }
   }
 
+  async function loadManualData() {
+    try {
+      setLoadingManualData(true);
+
+      const currentEmpresaId = await getEmpresaId();
+
+      if (!currentEmpresaId) {
+        toast.error("Empresa não encontrada.");
+        return;
+      }
+
+      const [{ data: clientesData, error: clientesErr }, { data: produtosData, error: produtosErr }] =
+        await Promise.all([
+          supabaseClient
+            .from("clientes")
+            .select("id, nome")
+            .order("nome", { ascending: true }),
+          supabaseClient
+            .from("produtos")
+            .select("id, nome, preco, estoque, ativo")
+            .eq("empresa_id", currentEmpresaId)
+            .eq("ativo", true)
+            .order("nome", { ascending: true }),
+        ]);
+
+      if (clientesErr) throw clientesErr;
+      if (produtosErr) throw produtosErr;
+
+      setClientes((clientesData ?? []) as ClienteOption[]);
+      setProdutosCadastro(
+        ((produtosData ?? []) as Array<{
+          id: string;
+          nome: string;
+          preco: number | string;
+          estoque: number;
+          ativo: boolean;
+        }>).map((p) => ({
+          id: p.id,
+          nome: p.nome,
+          preco: toNumber(p.preco),
+          estoque: Number(p.estoque) || 0,
+          ativo: Boolean(p.ativo),
+        }))
+      );
+    } catch (err) {
+      console.error(err);
+      toast.error("Não foi possível carregar clientes e produtos.");
+    } finally {
+      setLoadingManualData(false);
+    }
+  }
+
+  function openManualModal() {
+    setManualOpen(true);
+    setClienteBusca("");
+    setClienteSelecionadoId("");
+    setQtdManual({});
+    void loadManualData();
+  }
+
+  function closeManualModal() {
+    if (savingManual) return;
+    setManualOpen(false);
+  }
+
+  function incManual(produto: ProdutoOption) {
+    setQtdManual((prev) => {
+      const atual = prev[produto.id] ?? 0;
+      const proximo = atual + 1;
+
+      if (produto.estoque === 0) return prev;
+      if (produto.estoque > 0 && proximo > produto.estoque) return prev;
+
+      return { ...prev, [produto.id]: proximo };
+    });
+  }
+
+  function decManual(produto: ProdutoOption) {
+    setQtdManual((prev) => {
+      const atual = prev[produto.id] ?? 0;
+      const proximo = Math.max(0, atual - 1);
+      return { ...prev, [produto.id]: proximo };
+    });
+  }
+
+  function setExactManual(produto: ProdutoOption, value: number) {
+    const v = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+
+    setQtdManual((prev) => {
+      if (produto.estoque === 0) return prev;
+      if (produto.estoque > 0 && v > produto.estoque) {
+        return { ...prev, [produto.id]: produto.estoque };
+      }
+      return { ...prev, [produto.id]: v };
+    });
+  }
+
+  async function criarPedidoManual() {
+    try {
+      const currentEmpresaId = await getEmpresaId();
+
+      if (!currentEmpresaId) {
+        toast.error("Empresa não encontrada.");
+        return;
+      }
+
+      if (!clienteSelecionadoId) {
+        toast.error("Selecione um cliente.");
+        return;
+      }
+
+      if (itensManual.length === 0) {
+        toast.error("Adicione pelo menos 1 produto.");
+        return;
+      }
+
+      setSavingManual(true);
+
+      const total = totalManual;
+
+      const { data: pedidoCriado, error: pedidoErr } = await supabaseClient
+        .from("pedidos")
+        .insert({
+          empresa_id: currentEmpresaId,
+          cliente_usuario_id: clienteSelecionadoId,
+          status: "rascunho",
+          total,
+        })
+        .select("id")
+        .single();
+
+      if (pedidoErr) throw pedidoErr;
+
+      const pedidoId = pedidoCriado.id as string;
+
+      const itensInsert = itensManual.map((item) => ({
+        pedido_id: pedidoId,
+        produto_id: item.produto.id,
+        quantidade: item.quantidade,
+        preco_unitario: item.produto.preco,
+        subtotal: item.subtotal,
+      }));
+
+      const { error: itensErr } = await supabaseClient.from("pedidos_itens").insert(itensInsert);
+
+      if (itensErr) throw itensErr;
+
+      toast.success("Pedido manual criado com sucesso!");
+      setManualOpen(false);
+      setQtdManual({});
+      setClienteBusca("");
+      setClienteSelecionadoId("");
+
+      setPage(1);
+      await loadPedidos();
+      await loadItens(pedidoId);
+      setExpanded((prev) => ({ ...prev, [pedidoId]: true }));
+    } catch (err) {
+      console.error(err);
+      toast.error("Não foi possível criar o pedido manual.");
+    } finally {
+      setSavingManual(false);
+    }
+  }
+
   useEffect(() => {
     loadPedidos();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -303,8 +533,255 @@ export default function PedidosPage() {
     <div className="min-h-screen bg-white text-[#0f172a]">
       <Toaster position="top-right" />
 
+      {manualOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
+          <div className="flex h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl">
+            <div className="flex items-center justify-between border-b border-black/10 px-5 py-4 sm:px-6">
+              <div>
+                <div className="text-lg font-semibold text-black">Criar pedido manual</div>
+                <div className="text-sm text-black/55">
+                  Selecione o cliente, marque os produtos e defina as quantidades.
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeManualModal}
+                className="grid h-10 w-10 place-items-center rounded-2xl border border-black/10 bg-white hover:bg-black/5"
+                aria-label="Fechar"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+              {loadingManualData ? (
+                <div className="space-y-4">
+                  <div className="h-5 w-48 rounded bg-black/5" />
+                  <div className="h-11 w-full rounded-2xl bg-black/5" />
+                  <div className="h-5 w-56 rounded bg-black/5" />
+                  <div className="h-32 w-full rounded-3xl bg-black/5" />
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+                  <div className="space-y-6">
+                    <section className="rounded-3xl border border-black/10 bg-white p-4">
+                      <div className="text-sm font-semibold text-black">Cliente</div>
+                      <div className="mt-1 text-xs text-black/50">
+                        Busque pelo nome e selecione um cliente cadastrado.
+                      </div>
+
+                      <input
+                        type="text"
+                        value={clienteBusca}
+                        onChange={(e) => setClienteBusca(e.target.value)}
+                        placeholder="Buscar cliente pelo nome"
+                        className="mt-4 h-11 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-black/20"
+                      />
+
+                      <div className="mt-3 max-h-56 overflow-y-auto rounded-2xl border border-black/10">
+                        {clientesFiltrados.length === 0 ? (
+                          <div className="p-4 text-sm text-black/60">Nenhum cliente encontrado.</div>
+                        ) : (
+                          <div className="divide-y divide-black/10">
+                            {clientesFiltrados.map((cliente) => {
+                              const ativo = clienteSelecionadoId === cliente.id;
+
+                              return (
+                                <button
+                                  key={cliente.id}
+                                  type="button"
+                                  onClick={() => setClienteSelecionadoId(cliente.id)}
+                                  className={cn(
+                                    "flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-black/5",
+                                    ativo && "bg-black/5"
+                                  )}
+                                >
+                                  <div className="min-w-0">
+                                    <div className="truncate text-sm font-medium text-black">
+                                      {cliente.nome?.trim() || "Cliente sem nome"}
+                                    </div>
+                                    <div className="mt-1 text-xs text-black/45">
+                                      #{shortId(cliente.id)}
+                                    </div>
+                                  </div>
+
+                                  <div
+                                    className={cn(
+                                      "h-4 w-4 rounded-full border",
+                                      ativo ? "border-black bg-black" : "border-black/20 bg-white"
+                                    )}
+                                  />
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </section>
+
+                    <section className="rounded-3xl border border-black/10 bg-white p-4">
+                      <div className="text-sm font-semibold text-black">Produtos</div>
+                      <div className="mt-1 text-xs text-black/50">
+                        Ajuste as quantidades dos itens que entrarão no pedido.
+                      </div>
+
+                      <div className="mt-4 space-y-3">
+                        {produtosCadastro.length === 0 ? (
+                          <div className="rounded-2xl border border-black/10 p-4 text-sm text-black/60">
+                            Nenhum produto ativo encontrado.
+                          </div>
+                        ) : (
+                          produtosCadastro.map((produto) => {
+                            const q = qtdManual[produto.id] ?? 0;
+                            const semEstoque = produto.estoque === 0;
+
+                            return (
+                              <div
+                                key={produto.id}
+                                className="rounded-3xl border border-black/10 bg-white p-4"
+                              >
+                                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                                  <div className="min-w-0">
+                                    <div className="text-sm font-semibold text-black">
+                                      {produto.nome}
+                                    </div>
+
+                                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                                      <span className="rounded-full border border-black/10 bg-black/5 px-3 py-1 text-xs font-semibold text-black">
+                                        {formatBRL(produto.preco)}
+                                      </span>
+
+                                      <span className="rounded-full border border-black/10 bg-white px-3 py-1 text-xs text-black/60">
+                                        {semEstoque ? "Sem estoque" : `Estoque: ${produto.estoque}`}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="w-full sm:w-auto">
+                                    <div className="mb-2 text-xs text-black/55 sm:text-right">
+                                      Quantidade
+                                    </div>
+
+                                    <div className="flex items-center gap-2 rounded-2xl border border-black/10 bg-white p-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => decManual(produto)}
+                                        disabled={q <= 0}
+                                        className="grid h-11 w-11 place-items-center rounded-xl border border-black/10 bg-white hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50"
+                                        aria-label="Diminuir"
+                                      >
+                                        <Minus size={18} />
+                                      </button>
+
+                                      <input
+                                        value={q}
+                                        onChange={(e) =>
+                                          setExactManual(produto, Number(e.target.value))
+                                        }
+                                        inputMode="numeric"
+                                        className="h-11 w-16 rounded-xl border border-black/10 bg-white text-center text-sm outline-none"
+                                      />
+
+                                      <button
+                                        type="button"
+                                        onClick={() => incManual(produto)}
+                                        disabled={semEstoque || (produto.estoque > 0 && q >= produto.estoque)}
+                                        className="grid h-11 w-11 place-items-center rounded-xl border border-black/10 bg-white hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50"
+                                        aria-label="Aumentar"
+                                      >
+                                        <Plus size={18} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </section>
+                  </div>
+
+                  <div>
+                    <section className="sticky top-0 rounded-3xl border border-black/10 bg-white p-4 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]">
+                      <div className="flex items-center gap-2">
+                        <div className="grid h-10 w-10 place-items-center rounded-2xl border border-black/10 bg-black/5">
+                          <Package size={18} />
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold text-black">Resumo do pedido</div>
+                          <div className="text-xs text-black/55">
+                            {itensManual.length} item(ns) selecionado(s)
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 rounded-2xl border border-black/10 bg-black/5 px-4 py-3">
+                        <div className="text-xs text-black/55">Cliente selecionado</div>
+                        <div className="mt-1 text-sm font-medium text-black">
+                          {clientes.find((c) => c.id === clienteSelecionadoId)?.nome?.trim() ||
+                            "Nenhum cliente selecionado"}
+                        </div>
+                      </div>
+
+                      {itensManual.length === 0 ? (
+                        <div className="mt-4 rounded-2xl border border-black/10 p-4 text-sm text-black/60">
+                          Escolha os produtos e defina as quantidades.
+                        </div>
+                      ) : (
+                        <div className="mt-4 overflow-hidden rounded-2xl border border-black/10">
+                          <div className="divide-y divide-black/10">
+                            {itensManual.map((item) => (
+                              <div
+                                key={item.produto.id}
+                                className="flex items-center justify-between gap-3 p-4"
+                              >
+                                <div className="min-w-0">
+                                  <div className="truncate text-sm font-medium text-black">
+                                    {item.produto.nome}
+                                  </div>
+                                  <div className="mt-1 text-xs text-black/45">
+                                    {item.quantidade}x • {formatBRL(item.produto.preco)}
+                                  </div>
+                                </div>
+
+                                <div className="shrink-0 text-sm font-semibold text-black">
+                                  {formatBRL(item.subtotal)}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="mt-4 flex items-center justify-between rounded-2xl border border-black/10 bg-white px-4 py-3">
+                        <div>
+                          <div className="text-xs text-black/55">Total</div>
+                          <div className="text-lg font-semibold text-black">
+                            {formatBRL(totalManual)}
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={criarPedidoManual}
+                        disabled={savingManual || !clienteSelecionadoId || itensManual.length === 0}
+                        className="mt-4 h-12 w-full rounded-2xl bg-[#EB3410] px-4 text-sm font-semibold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {savingManual ? "Salvando..." : "Concluir pedido manual"}
+                      </button>
+                    </section>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mx-auto w-full max-w-5xl px-4 py-6">
-        {/* Header */}
         <section className="rounded-3xl border border-black/10 bg-white p-6 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.25)]">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -319,17 +796,26 @@ export default function PedidosPage() {
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={loadPedidos}
-              className="inline-flex items-center gap-2 rounded-2xl border border-black/10 bg-white px-4 py-2 text-sm hover:bg-black/5"
-            >
-              <RefreshCw size={16} /> Atualizar
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={openManualModal}
+                className="inline-flex items-center gap-2 rounded-2xl bg-[#EB3410] px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
+              >
+                <Plus size={16} /> Criar pedido manual
+              </button>
+
+              <button
+                type="button"
+                onClick={loadPedidos}
+                className="inline-flex items-center gap-2 rounded-2xl border border-black/10 bg-white px-4 py-2 text-sm hover:bg-black/5"
+              >
+                <RefreshCw size={16} /> Atualizar
+              </button>
+            </div>
           </div>
         </section>
 
-        {/* Lista */}
         <section className="mt-6 pb-10">
           {loading ? (
             <div className="rounded-3xl border border-black/10 bg-white p-6">
@@ -440,7 +926,7 @@ export default function PedidosPage() {
                           <div className="text-xs text-black/45">
                             {loadingItems[p.id]
                               ? "Carregando..."
-                              : `${(itemsByPedido[p.id]?.length ?? 0)} item(ns)`}
+                              : `${itemsByPedido[p.id]?.length ?? 0} item(ns)`}
                           </div>
                         </div>
 
