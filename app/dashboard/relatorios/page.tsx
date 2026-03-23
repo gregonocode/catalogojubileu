@@ -1,3 +1,4 @@
+//app\dashboard\relatorios\page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -10,7 +11,11 @@ function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-type ClienteEmbed = { nome: string | null; telefone?: string | null };
+type ClienteEmbed = {
+  nome: string | null;
+  telefone?: string | null;
+  end_clientes?: EndClienteEmbed | EndClienteEmbed[] | null;
+};
 
 type PedidoRow = {
   id: string;
@@ -57,7 +62,20 @@ type Pedido = {
   atualizado_em: string;
   cliente_nome: string | null;
   cliente_telefone: string | null;
+  cliente_endereco: string | null;
   itens: PedidoItem[];
+};
+
+
+type EndClienteEmbed = {
+  cep?: string | null;
+  logradouro?: string | null;
+  numero?: string | null;
+  complemento?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
+  referencia?: string | null;
 };
 
 function toNumber(v: number | string | null | undefined) {
@@ -111,6 +129,29 @@ function pickCliente(v: ClienteEmbed | ClienteEmbed[] | null | undefined) {
     telefone: v.telefone ?? null,
   };
 }
+function pickEndereco(
+  v: EndClienteEmbed | EndClienteEmbed[] | null | undefined
+): EndClienteEmbed | null {
+  if (!v) return null;
+  if (Array.isArray(v)) return v[0] ?? null;
+  return v;
+}
+
+function montarEndereco(endereco: EndClienteEmbed | null | undefined) {
+  if (!endereco) return null;
+
+  const partes = [
+    endereco.logradouro?.trim(),
+    endereco.numero?.trim(),
+    endereco.complemento?.trim(),
+    endereco.bairro?.trim(),
+    endereco.cidade?.trim(),
+    endereco.uf?.trim(),
+    endereco.cep?.trim(),
+  ].filter(Boolean);
+
+  return partes.length ? partes.join(", ") : null;
+}
 
 function pickProdutoNome(v: ProdutoEmbed | ProdutoEmbed[] | null | undefined) {
   if (!v) return null;
@@ -150,10 +191,18 @@ function generatePedidoPdf(pedido: Pedido) {
   doc.setFontSize(12);
   doc.text(pedido.cliente_nome || "Cliente sem nome", left, y);
 
-  y += 6;
+    y += 6;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10.5);
   doc.text(`Telefone/Whatsapp: ${pedido.cliente_telefone || "-"}`, left, y);
+
+  y += 6;
+  const enderecoTexto = `Endereço: ${pedido.cliente_endereco || "-"}`;
+  const enderecoLinhas = doc.splitTextToSize(enderecoTexto, 182);
+  doc.text(enderecoLinhas, left, y);
+
+  y += enderecoLinhas.length * 5 + 4;
+  drawLine(doc, y);
 
   y += 10;
   drawLine(doc, y);
@@ -245,12 +294,25 @@ export default function RelatoriosPage() {
         return;
       }
 
-      const { data, error } = await supabaseClient
+            const { data, error } = await supabaseClient
         .from("pedidos")
         .select(
           `
           id, empresa_id, cliente_usuario_id, status, total, criado_em, atualizado_em,
-          clientes:clientes!pedidos_cliente_usuario_id_fkey(nome, telefone)
+          clientes:clientes!pedidos_cliente_usuario_id_fkey(
+            nome,
+            telefone,
+            end_clientes(
+              cep,
+              logradouro,
+              numero,
+              complemento,
+              bairro,
+              cidade,
+              uf,
+              referencia
+            )
+          )
           `
         )
         .eq("empresa_id", empresaId)
@@ -297,8 +359,11 @@ export default function RelatoriosPage() {
         }
       }
 
-      const normalized: Pedido[] = rows.map((r) => {
+            const normalized: Pedido[] = rows.map((r) => {
         const cliente = pickCliente(r.clientes);
+        const endereco = pickEndereco(
+          Array.isArray(r.clientes) ? r.clientes[0]?.end_clientes : r.clientes?.end_clientes
+        );
 
         return {
           id: r.id,
@@ -310,6 +375,7 @@ export default function RelatoriosPage() {
           atualizado_em: r.atualizado_em,
           cliente_nome: cliente.nome,
           cliente_telefone: cliente.telefone,
+          cliente_endereco: montarEndereco(endereco),
           itens: itensMap[r.id] ?? [],
         };
       });
