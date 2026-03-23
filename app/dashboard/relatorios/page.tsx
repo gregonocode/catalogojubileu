@@ -202,10 +202,9 @@ function generatePedidoPdf(pedido: Pedido) {
   doc.text(enderecoLinhas, left, y);
 
   y += enderecoLinhas.length * 5 + 4;
-  drawLine(doc, y);
+ drawLine(doc, y);
 
-  y += 10;
-  drawLine(doc, y);
+ y += 12;
 
   y += 12;
   doc.setFont("helvetica", "bold");
