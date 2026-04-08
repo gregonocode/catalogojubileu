@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabaseClient } from "@/lib/supabase/client";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import toast, { Toaster } from "react-hot-toast";
 import {
   ArrowLeft,
@@ -190,12 +191,9 @@ function formatEndereco(endereco: EnderecoRow | null) {
   return [linha1, linha2, linha3].filter(Boolean).join(" — ");
 }
 
-export default function PedidoDetalhePage({
-  params,
-}: {
-  params: { id: string };
-}) {
-  const pedidoId = params.id;
+export default function PedidoDetalhePage() {
+  const params = useParams();
+  const pedidoId = Array.isArray(params?.id) ? params.id[0] : params?.id;
 
   const [loading, setLoading] = useState(true);
   const [pedido, setPedido] = useState<PedidoDetalhe | null>(null);
@@ -212,8 +210,16 @@ export default function PedidoDetalhePage({
   }, [itens]);
 
   async function loadPedido() {
-    try {
-      setLoading(true);
+  try {
+    if (!pedidoId) {
+      setPedido(null);
+      setEndereco(null);
+      setItens([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
 
       const { data: pedidoData, error: pedidoError } = await supabaseClient
         .from("pedidos")
