@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabaseClient } from "@/lib/supabase/client";
 import toast, { Toaster } from "react-hot-toast";
 import {
@@ -140,6 +141,8 @@ function pickProdutoNome(v: ProdutoEmbed | ProdutoEmbed[] | null | undefined) {
 }
 
 export default function PedidosPage() {
+  const router = useRouter();
+
   const [loading, setLoading] = useState(true);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [page, setPage] = useState(1);
@@ -564,9 +567,17 @@ async function criarPedidoManual() {
 
                 return (
                   <div
-                    key={p.id}
-                    className="rounded-3xl border border-black/10 bg-white p-5 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]"
-                  >
+               key={p.id}
+               role="button"
+               tabIndex={0}
+               onClick={() => router.push(`/dashboard/pedidos/${p.id}`)}
+               onKeyDown={(e) => {
+               if (e.key === "Enter" || e.key === " ") {
+               e.preventDefault();
+                router.push(`/dashboard/pedidos/${p.id}`);
+              }
+              }}
+              className="cursor-pointer rounded-3xl border border-black/10 bg-white p-5 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)] transition hover:-translate-y-[1px] hover:border-black/20 hover:shadow-[0_18px_40px_-24px_rgba(0,0,0,0.28)]">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
@@ -606,7 +617,10 @@ async function criarPedidoManual() {
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                       <button
                         type="button"
-                        onClick={() => toggleExpand(p.id)}
+                        onClick={(e) => {
+                        e.stopPropagation();
+                        void toggleExpand(p.id);
+                       }}
                         className="inline-flex items-center gap-2 rounded-2xl border border-black/10 bg-white px-4 py-2 text-sm hover:bg-black/5"
                       >
                         {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -619,7 +633,10 @@ async function criarPedidoManual() {
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
-                          onClick={() => cancelarPedido(p.id)}
+                          onClick={(e) => {
+                         e.stopPropagation();
+                         void cancelarPedido(p.id);
+                       }}
                           disabled={finalizado}
                           className={cn(
                             "rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-medium text-black/70 hover:bg-black/5",
@@ -631,7 +648,10 @@ async function criarPedidoManual() {
 
                         <button
                           type="button"
-                          onClick={() => aprovarPedido(p.id)}
+                          onClick={(e) => {
+                          e.stopPropagation();
+                          void aprovarPedido(p.id);
+                          }}
                           disabled={finalizado}
                           className={cn(
                             "rounded-xl bg-[#16a34a] px-3 py-2 text-sm font-semibold text-white hover:brightness-95",
@@ -644,7 +664,9 @@ async function criarPedidoManual() {
                     </div>
 
                     {isExpanded && (
-                      <div className="mt-4 overflow-hidden rounded-2xl border border-black/10">
+                    <div
+                    className="mt-4 overflow-hidden rounded-2xl border border-black/10"
+                      onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-between gap-2 bg-black/5 px-4 py-3">
                           <div className="flex items-center gap-2 text-xs font-semibold text-black/70">
                             <Package size={14} /> Itens do pedido
