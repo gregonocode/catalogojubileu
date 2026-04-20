@@ -163,6 +163,7 @@ export default function PedidosPage() {
 
   const [clienteBusca, setClienteBusca] = useState("");
   const [clienteSelecionadoId, setClienteSelecionadoId] = useState<string>("");
+  const [produtoBusca, setProdutoBusca] = useState("");
   const [manualQtd, setManualQtd] = useState<Record<string, number>>({});
 
   const totalPedidos = useMemo(() => pedidos.length, [pedidos]);
@@ -191,6 +192,12 @@ export default function PedidosPage() {
   const clienteSelecionado = useMemo(() => {
     return clientes.find((c) => c.usuario_id === clienteSelecionadoId) ?? null;
   }, [clientes, clienteSelecionadoId]);
+
+  const produtosFiltradosManual = useMemo(() => {
+    const q = produtoBusca.trim().toLowerCase();
+    if (!q) return produtosCatalogo;
+    return produtosCatalogo.filter((produto) => produto.nome.toLowerCase().includes(q));
+  }, [produtosCatalogo, produtoBusca]);
 
   const manualItens = useMemo(() => {
     return Object.entries(manualQtd)
@@ -451,6 +458,7 @@ export default function PedidosPage() {
     setManualOpen(true);
     setClienteBusca("");
     setClienteSelecionadoId("");
+    setProdutoBusca("");
     setManualQtd({});
     if (!clientes.length || !produtosCatalogo.length) {
       void loadManualData();
@@ -897,7 +905,16 @@ async function criarPedidoManual() {
               </div>
 
               <div className="p-5">
-                <div className="text-sm font-semibold text-black">Produtos</div>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-sm font-semibold text-black">Produtos</div>
+
+                  <input
+                    value={produtoBusca}
+                    onChange={(e) => setProdutoBusca(e.target.value)}
+                    placeholder="Pesquisar produto pelo nome"
+                    className="h-11 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-black/20 sm:max-w-xs"
+                  />
+                </div>
 
                 <div className="mt-3 space-y-3">
                   {loadingManualData ? (
@@ -908,8 +925,12 @@ async function criarPedidoManual() {
                     <div className="rounded-2xl border border-black/10 bg-white p-4 text-sm text-black/60">
                       Nenhum produto ativo encontrado.
                     </div>
+                  ) : produtosFiltradosManual.length === 0 ? (
+                    <div className="rounded-2xl border border-black/10 bg-white p-4 text-sm text-black/60">
+                      Nenhum produto encontrado para essa pesquisa.
+                    </div>
                   ) : (
-                    produtosCatalogo.map((produto) => {
+                    produtosFiltradosManual.map((produto) => {
                       const q = manualQtd[produto.id] ?? 0;
                       const semEstoque = produto.estoque === 0;
 
