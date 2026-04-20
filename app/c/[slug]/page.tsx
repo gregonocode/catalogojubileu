@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabaseClient } from "@/lib/supabase/client";
 import toast, { Toaster } from "react-hot-toast";
-import { Minus, Plus, ShoppingCart, ArrowLeft, User } from "lucide-react";
+import { Minus, Plus, ShoppingCart, ArrowLeft, User, Search } from "lucide-react";
 
 // ✅ popup + modal (separados)
 import ClienteCadastroPopup from "@/app/components/auth/ClienteCadastroPopup";
@@ -64,6 +64,8 @@ export default function CatalogoPage() {
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [categoriaAtiva, setCategoriaAtiva] = useState<string | "todas">("todas");
+  const [buscaAberta, setBuscaAberta] = useState(false);
+  const [termoBusca, setTermoBusca] = useState("");
 
   // carrinho: produtoId -> quantidade
   const [qtd, setQtd] = useState<Record<string, number>>({});
@@ -73,9 +75,19 @@ export default function CatalogoPage() {
   const [isAuthed, setIsAuthed] = useState<boolean>(false);
 
   const produtosFiltrados = useMemo(() => {
-    if (categoriaAtiva === "todas") return produtos;
-    return produtos.filter((p) => p.categoria_id === categoriaAtiva);
-  }, [produtos, categoriaAtiva]);
+    const termo = termoBusca.trim().toLowerCase();
+
+    return produtos.filter((p) => {
+      const categoriaOk = categoriaAtiva === "todas" || p.categoria_id === categoriaAtiva;
+      if (!categoriaOk) return false;
+
+      if (!termo) return true;
+
+      const nome = p.nome.toLowerCase();
+      const descricao = (p.descricao ?? "").toLowerCase();
+      return nome.includes(termo) || descricao.includes(termo);
+    });
+  }, [produtos, categoriaAtiva, termoBusca]);
 
   const itensCarrinho = useMemo(() => {
     const items = Object.entries(qtd)
@@ -416,7 +428,39 @@ export default function CatalogoPage() {
                 {loading ? "Carregando..." : `${produtosFiltrados.length} item(ns)`}
               </div>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setBuscaAberta((prev) => !prev)}
+              className={cn(
+                "inline-flex h-11 items-center gap-2 rounded-2xl border border-black/10 bg-white px-4 text-sm font-medium text-black transition hover:bg-black/5",
+                buscaAberta && "bg-black/5"
+              )}
+              aria-label="Pesquisar produto"
+              title="Pesquisar produto"
+            >
+              <Search size={18} />
+              <span>Pesquisa</span>
+            </button>
           </div>
+
+          {buscaAberta && (
+            <div className="mb-4">
+              <div className="relative">
+                <Search
+                  size={16}
+                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-black/40"
+                />
+                <input
+                  type="text"
+                  value={termoBusca}
+                  onChange={(e) => setTermoBusca(e.target.value)}
+                  placeholder="Pesquisar produto pelo nome ou descrição"
+                  className="h-12 w-full rounded-2xl border border-black/10 bg-white pl-11 pr-4 text-sm text-black outline-none transition placeholder:text-black/35 focus:border-black/20"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 gap-4">
             {loading ? (
@@ -427,7 +471,9 @@ export default function CatalogoPage() {
               </div>
             ) : produtosFiltrados.length === 0 ? (
               <div className="rounded-3xl border border-black/10 bg-white p-6 text-sm text-black/60">
-                Nenhum produto nesta categoria.
+                {termoBusca.trim()
+                  ? "Nenhum produto encontrado para essa pesquisa."
+                  : "Nenhum produto nesta categoria."}
               </div>
             ) : (
               produtosFiltrados.map((p) => {
