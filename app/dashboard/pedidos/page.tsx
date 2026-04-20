@@ -150,6 +150,7 @@ export default function PedidosPage() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [itemsByPedido, setItemsByPedido] = useState<Record<string, PedidoItem[]>>({});
   const [loadingItems, setLoadingItems] = useState<Record<string, boolean>>({});
+  const [removingItemId, setRemovingItemId] = useState<string | null>(null);
 
   const [empresaId, setEmpresaId] = useState<string | null>(null);
 
@@ -388,6 +389,61 @@ export default function PedidosPage() {
     } catch (err) {
       console.error(err);
       toast.error("Não foi possível cancelar o pedido.");
+    }
+  }
+
+  async function removerItemPedido(pedidoId: string, item: PedidoItem, finalizado: boolean) {
+    if (finalizado) return;
+
+    const agora = new Date().toISOString();
+    const itensAtuais = itemsByPedido[pedidoId] ?? [];
+    const itensRestantes = itensAtuais.filter((it) => it.id !== item.id);
+    const novoTotal = itensRestantes.reduce((acc, it) => acc + it.subtotal, 0);
+
+    try {
+      setRemovingItemId(item.id);
+
+      const { error: deleteError } = await supabaseClient
+        .from("pedidos_itens")
+        .delete()
+        .eq("id", item.id)
+        .eq("pedido_id", pedidoId);
+
+      if (deleteError) throw deleteError;
+
+      const { error: updateError } = await supabaseClient
+        .from("pedidos")
+        .update({
+          total: novoTotal,
+          atualizado_em: agora,
+        })
+        .eq("id", pedidoId);
+
+      if (updateError) throw updateError;
+
+      setItemsByPedido((prev) => ({
+        ...prev,
+        [pedidoId]: itensRestantes,
+      }));
+
+      setPedidos((prev) =>
+        prev.map((pedido) =>
+          pedido.id === pedidoId
+            ? {
+                ...pedido,
+                total: novoTotal,
+                atualizado_em: agora,
+              }
+            : pedido
+        )
+      );
+
+      toast.success("Item removido do pedido.");
+    } catch (err) {
+      console.error(err);
+      toast.error("Nao foi possivel remover o item do pedido.");
+    } finally {
+      setRemovingItemId(null);
     }
   }
 
@@ -703,8 +759,25 @@ async function criarPedidoManual() {
                                   </div>
                                 </div>
 
-                                <div className="shrink-0 text-sm font-semibold text-black">
-                                  {formatBRL(it.subtotal)}
+                                <div className="flex shrink-0 items-center gap-2">
+                                  <div className="text-sm font-semibold text-black">
+                                    {formatBRL(it.subtotal)}
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => void removerItemPedido(p.id, it, finalizado)}
+                                    disabled={finalizado || removingItemId === it.id}
+                                    className={cn(
+                                      "grid h-9 w-9 place-items-center rounded-xl border border-red-200 bg-white text-red-600 transition hover:bg-red-50",
+                                      (finalizado || removingItemId === it.id) &&
+                                        "cursor-not-allowed opacity-40 hover:bg-white"
+                                    )}
+                                    aria-label={`Remover ${it.produto_nome ?? "item"} do pedido`}
+                                    title="Remover item"
+                                  >
+                                    <X size={16} />
+                                  </button>
                                 </div>
                               </div>
                             ))}
