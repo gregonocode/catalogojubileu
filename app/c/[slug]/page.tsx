@@ -1,7 +1,7 @@
 // app/c/[slug]/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabaseClient } from "@/lib/supabase/client";
 import toast, { Toaster } from "react-hot-toast";
@@ -69,6 +69,7 @@ export default function CatalogoPage() {
   const [buscaAberta, setBuscaAberta] = useState(false);
   const [termoBusca, setTermoBusca] = useState("");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   // carrinho: produtoId -> quantidade
   const [qtd, setQtd] = useState<Record<string, number>>({});
@@ -118,6 +119,23 @@ export default function CatalogoPage() {
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
   }, [categoriaAtiva, termoBusca]);
+
+  useEffect(() => {
+    const target = loadMoreRef.current;
+    if (!target || !hasMoreProdutos || loading) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) return;
+        setVisibleCount((count) => Math.min(count + PAGE_SIZE, produtosFiltrados.length));
+      },
+      { rootMargin: "240px 0px" }
+    );
+
+    observer.observe(target);
+
+    return () => observer.disconnect();
+  }, [hasMoreProdutos, loading, produtosFiltrados.length, produtosVisiveis.length]);
 
   // ✅ mantém estado de auth atualizado
   useEffect(() => {
@@ -607,7 +625,7 @@ export default function CatalogoPage() {
           </div>
 
           {!loading && produtosFiltrados.length > 0 && (
-            <div className="mt-4 flex flex-col items-center gap-2">
+            <div ref={loadMoreRef} className="mt-4 flex flex-col items-center gap-2">
               <div className="text-xs text-black/50">
                 Exibindo {produtosVisiveis.length} de {produtosFiltrados.length} produto(s)
               </div>
@@ -615,10 +633,14 @@ export default function CatalogoPage() {
               {hasMoreProdutos && (
                 <button
                   type="button"
-                  onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
+                  onClick={() =>
+                    setVisibleCount((count) =>
+                      Math.min(count + PAGE_SIZE, produtosFiltrados.length)
+                    )
+                  }
                   className="inline-flex h-11 items-center justify-center rounded-2xl border border-black/10 bg-white px-5 text-sm font-medium text-black hover:bg-black/5"
                 >
-                  Carregar mais
+                  Carregando mais...
                 </button>
               )}
             </div>
