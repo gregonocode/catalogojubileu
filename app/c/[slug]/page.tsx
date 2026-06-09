@@ -351,6 +351,29 @@ export default function CatalogoPage() {
         }}
       />
 
+      {itensCarrinho.length > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-black/10 bg-white/95 px-4 py-3 shadow-[0_-18px_45px_-30px_rgba(0,0,0,0.45)] backdrop-blur">
+          <div className="mx-auto flex w-full max-w-4xl items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-xs font-medium text-black/55">
+                {itensCarrinho.length} item(ns) selecionado(s)
+              </div>
+              <div className="text-base font-semibold text-black">{formatBRL(total)}</div>
+            </div>
+
+            <button
+              type="button"
+              onClick={finalizarWhatsApp}
+              disabled={!empresa}
+              className="inline-flex h-11 shrink-0 items-center gap-2 rounded-2xl bg-[#25D366] px-4 text-sm font-semibold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <ShoppingCart size={17} />
+              Finalizar
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="mx-auto w-full max-w-4xl px-4 py-6">
         {/* HEADER */}
         <section
@@ -633,7 +656,12 @@ export default function CatalogoPage() {
           </div>
         </section>
 
-        <section className="mt-8 pb-10 text-center text-xs text-black/35">
+        <section
+          className={cn(
+            "mt-8 text-center text-xs text-black/35",
+            itensCarrinho.length > 0 ? "pb-28" : "pb-10"
+          )}
+        >
           {empresa?.nome ?? "Pneu Forte"} • Catálogo online
         </section>
       </div>
