@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabaseClient } from "@/lib/supabase/client";
 import toast, { Toaster } from "react-hot-toast";
 import { Search, RefreshCw, FileDown, Eye, Package } from "lucide-react";
+import { generatePedidoPdf } from "@/lib/pedidos/pdf";
 import jsPDF from "jspdf";
 
 function cn(...classes: Array<string | false | null | undefined>) {
@@ -165,7 +166,7 @@ function drawLine(doc: jsPDF, y: number) {
   doc.line(14, y, 196, y);
 }
 
-function generatePedidoPdf(pedido: Pedido) {
+function generatePedidoPdfLegacy(pedido: Pedido) {
   const doc = new jsPDF({
     orientation: "p",
     unit: "mm",

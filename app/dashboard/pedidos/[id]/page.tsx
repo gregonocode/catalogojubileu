@@ -16,6 +16,7 @@ import {
   XCircle,
   ClipboardList,
 } from "lucide-react";
+import { generatePedidoPdf } from "@/lib/pedidos/pdf";
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -359,10 +360,39 @@ export default function PedidoDetalhePage() {
     }
   }
 
+  function exportarPedidoPdf() {
+    if (!pedido) {
+      toast.error("Pedido ainda não carregado.");
+      return;
+    }
+
+    generatePedidoPdf({
+      id: pedido.id,
+      total: pedido.total,
+      criado_em: pedido.criado_em,
+      cliente_nome: pedido.cliente_nome,
+      cliente_telefone: pedido.cliente_telefone,
+      cliente_endereco: formatEndereco(endereco),
+      itens,
+    });
+  }
+
   useEffect(() => {
     loadPedido();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pedidoId]);
+
+  useEffect(() => {
+    function handleExportPedido() {
+      exportarPedidoPdf();
+    }
+
+    window.addEventListener("dashboard:export-pedido", handleExportPedido);
+    return () => {
+      window.removeEventListener("dashboard:export-pedido", handleExportPedido);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedido, endereco, itens]);
 
   const finalizado = isFinalizado(pedido?.status ?? "");
 
