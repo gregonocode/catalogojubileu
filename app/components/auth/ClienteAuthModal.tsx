@@ -16,6 +16,7 @@ type FormState = {
   nome: string;
   email: string;
   senha: string;
+  telefone: string;
   cep: string;
   logradouro: string;
   numero: string;
@@ -56,6 +57,7 @@ export default function ClienteAuthModal({
     nome: '',
     email: '',
     senha: '',
+    telefone: '',
     cep: '',
     logradouro: '',
     numero: '',
@@ -89,17 +91,25 @@ export default function ClienteAuthModal({
 
   if (!open) return null;
 
-  async function upsertCliente(usuarioId: string, nome: string) {
+  async function upsertCliente(usuarioId: string, nome: string, telefone?: string) {
+    const telefoneLimpo = telefone ? onlyDigits(telefone) : '';
+    const payload: {
+      usuario_id: string;
+      nome: string;
+      telefone?: string | null;
+    } = {
+      usuario_id: usuarioId,
+      nome,
+    };
+
+    if (telefone !== undefined) {
+      payload.telefone = telefoneLimpo || null;
+    }
+
     const { data, error } = await supabase
       .from('clientes')
-      .upsert(
-        {
-          usuario_id: usuarioId,
-          nome,
-        },
-        { onConflict: 'usuario_id' }
-      )
-      .select('usuario_id, nome')
+      .upsert(payload, { onConflict: 'usuario_id' })
+      .select('usuario_id, nome, telefone')
       .maybeSingle();
 
     if (error) {
@@ -193,6 +203,7 @@ export default function ClienteAuthModal({
     const nome = form.nome.trim();
     const email = form.email.trim();
     const senha = form.senha;
+    const telefone = onlyDigits(form.telefone);
 
     if (nome.length < 2) {
       setMsg('Digite seu nome.');
@@ -206,6 +217,11 @@ export default function ClienteAuthModal({
 
     if (senha.length < 6) {
       setMsg('Sua senha precisa ter pelo menos 6 caracteres.');
+      return false;
+    }
+
+    if (telefone.length < 10) {
+      setMsg('Digite seu telefone com DDD.');
       return false;
     }
 
@@ -255,6 +271,7 @@ export default function ClienteAuthModal({
     const nome = form.nome.trim();
     const email = form.email.trim();
     const senha = form.senha;
+    const telefone = onlyDigits(form.telefone);
 
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -263,6 +280,7 @@ export default function ClienteAuthModal({
         data: {
           role: 'cliente',
           nome,
+          telefone,
         },
       },
     });
@@ -276,7 +294,7 @@ export default function ClienteAuthModal({
     const userId = data.user?.id ?? data.session?.user?.id ?? null;
 
     if (userId) {
-      const okCliente = await upsertCliente(userId, nome);
+      const okCliente = await upsertCliente(userId, nome, telefone);
       if (okCliente) {
         await upsertEnderecoCliente(userId);
       }
@@ -463,6 +481,23 @@ export default function ClienteAuthModal({
                   placeholder="••••••••"
                   type="password"
                   autoComplete="new-password"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-black/70">Telefone</label>
+                <input
+                  value={form.telefone}
+                  onChange={(e) =>
+                    setForm((s) => ({
+                      ...s,
+                      telefone: e.target.value,
+                    }))
+                  }
+                  className="mt-1 w-full rounded-xl border border-black/10 px-3 py-2 outline-none focus:border-black/30"
+                  placeholder="Ex: 93999999999"
+                  inputMode="tel"
+                  autoComplete="tel"
                 />
               </div>
             </>
