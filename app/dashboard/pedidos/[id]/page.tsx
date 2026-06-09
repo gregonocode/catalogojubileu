@@ -44,6 +44,11 @@ type PedidoDetalheRow = {
     | null;
 };
 
+type ClienteRow = {
+  nome: string | null;
+  telefone: string | null;
+};
+
 type EnderecoRow = {
   id: string;
   cliente_id: string;
@@ -243,7 +248,19 @@ export default function PedidoDetalhePage() {
       }
 
       const pedidoRow = pedidoData as unknown as PedidoDetalheRow;
-      const cliente = pickCliente(pedidoRow.clientes);
+      const clienteJoin = pickCliente(pedidoRow.clientes);
+      let clienteDireto: ClienteRow | null = null;
+
+      if (pedidoRow.cliente_usuario_id) {
+        const { data: clienteData, error: clienteError } = await supabaseClient
+          .from("clientes")
+          .select("nome, telefone")
+          .eq("usuario_id", pedidoRow.cliente_usuario_id)
+          .maybeSingle();
+
+        if (clienteError) throw clienteError;
+        clienteDireto = (clienteData as ClienteRow | null) ?? null;
+      }
 
       const pedidoNormalizado: PedidoDetalhe = {
         id: pedidoRow.id,
@@ -253,8 +270,8 @@ export default function PedidoDetalhePage() {
         total: toNumber(pedidoRow.total),
         criado_em: pedidoRow.criado_em,
         atualizado_em: pedidoRow.atualizado_em,
-        cliente_nome: cliente.nome,
-        cliente_telefone: cliente.telefone,
+        cliente_nome: clienteDireto?.nome ?? clienteJoin.nome,
+        cliente_telefone: clienteDireto?.telefone ?? clienteJoin.telefone,
       };
 
       setPedido(pedidoNormalizado);

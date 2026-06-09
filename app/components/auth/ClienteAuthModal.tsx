@@ -350,9 +350,13 @@ export default function ClienteAuthModal({
       typeof data.user?.user_metadata?.nome === 'string'
         ? String(data.user.user_metadata.nome).trim()
         : '';
+    const metaTelefone =
+      typeof data.user?.user_metadata?.telefone === 'string'
+        ? String(data.user.user_metadata.telefone).trim()
+        : '';
 
     if (userId && metaNome.length >= 2) {
-      await upsertCliente(userId, metaNome);
+      await upsertCliente(userId, metaNome, metaTelefone || undefined);
     }
 
     setLoading(false);
