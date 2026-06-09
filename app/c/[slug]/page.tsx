@@ -11,6 +11,8 @@ import { Minus, Plus, ShoppingCart, ArrowLeft, User, Search } from "lucide-react
 import ClienteCadastroPopup from "@/app/components/auth/ClienteCadastroPopup";
 import ClienteAuthModal from "@/app/components/auth/ClienteAuthModal";
 
+const PAGE_SIZE = 20;
+
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
@@ -66,6 +68,7 @@ export default function CatalogoPage() {
   const [categoriaAtiva, setCategoriaAtiva] = useState<string | "todas">("todas");
   const [buscaAberta, setBuscaAberta] = useState(false);
   const [termoBusca, setTermoBusca] = useState("");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   // carrinho: produtoId -> quantidade
   const [qtd, setQtd] = useState<Record<string, number>>({});
@@ -105,6 +108,16 @@ export default function CatalogoPage() {
   const total = useMemo(() => {
     return itensCarrinho.reduce((acc, it) => acc + it.subtotal, 0);
   }, [itensCarrinho]);
+
+  const produtosVisiveis = useMemo(() => {
+    return produtosFiltrados.slice(0, visibleCount);
+  }, [produtosFiltrados, visibleCount]);
+
+  const hasMoreProdutos = produtosVisiveis.length < produtosFiltrados.length;
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [categoriaAtiva, termoBusca]);
 
   // ✅ mantém estado de auth atualizado
   useEffect(() => {
@@ -448,7 +461,9 @@ export default function CatalogoPage() {
             <div>
               <div className="text-sm font-semibold text-black">Produtos</div>
               <div className="text-xs text-black/55">
-                {loading ? "Carregando..." : `${produtosFiltrados.length} item(ns)`}
+                {loading
+                  ? "Carregando..."
+                  : `${produtosVisiveis.length} de ${produtosFiltrados.length} item(ns)`}
               </div>
             </div>
 
@@ -499,7 +514,7 @@ export default function CatalogoPage() {
                   : "Nenhum produto nesta categoria."}
               </div>
             ) : (
-              produtosFiltrados.map((p) => {
+              produtosVisiveis.map((p) => {
                 const q = qtd[p.id] ?? 0;
                 const semEstoque = p.estoque === 0;
 
@@ -590,6 +605,24 @@ export default function CatalogoPage() {
               })
             )}
           </div>
+
+          {!loading && produtosFiltrados.length > 0 && (
+            <div className="mt-4 flex flex-col items-center gap-2">
+              <div className="text-xs text-black/50">
+                Exibindo {produtosVisiveis.length} de {produtosFiltrados.length} produto(s)
+              </div>
+
+              {hasMoreProdutos && (
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
+                  className="inline-flex h-11 items-center justify-center rounded-2xl border border-black/10 bg-white px-5 text-sm font-medium text-black hover:bg-black/5"
+                >
+                  Carregar mais
+                </button>
+              )}
+            </div>
+          )}
         </section>
 
         {/* RESUMO */}
