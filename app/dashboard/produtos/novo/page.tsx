@@ -43,6 +43,7 @@ export default function ProdutoNovoPage() {
   const [nome, setNome] = useState("");
   const [descricao, setDescricao] = useState("");
   const [precoTxt, setPrecoTxt] = useState("0");
+  const [precoCustoTxt, setPrecoCustoTxt] = useState("0");
   const [estoqueTxt, setEstoqueTxt] = useState("0");
   const [categoriaId, setCategoriaId] = useState<string>("");
 
@@ -54,6 +55,7 @@ export default function ProdutoNovoPage() {
   const canSave = useMemo(() => {
     const nomeOk = nome.trim().length >= 2;
     const preco = parseBRLToNumber(precoTxt);
+    const precoCusto = parseBRLToNumber(precoCustoTxt);
     const estoque = Number(onlyDigits(estoqueTxt) || "0");
     const estoqueOk = Number.isFinite(estoque) && estoque >= 0;
 
@@ -62,10 +64,12 @@ export default function ProdutoNovoPage() {
       nomeOk &&
       Number.isFinite(preco) &&
       preco >= 0 &&
+      Number.isFinite(precoCusto) &&
+      precoCusto >= 0 &&
       estoqueOk &&
       !saving
     );
-  }, [empresaId, nome, precoTxt, estoqueTxt, saving]);
+  }, [empresaId, nome, precoTxt, precoCustoTxt, estoqueTxt, saving]);
 
   useEffect(() => {
     let mounted = true;
@@ -170,10 +174,14 @@ export default function ProdutoNovoPage() {
     }
 
     const preco = parseBRLToNumber(precoTxt);
+    const preco_custo = parseBRLToNumber(precoCustoTxt);
     const estoque = Number(onlyDigits(estoqueTxt) || "0");
 
     if (nome.trim().length < 2) return toast.error("Informe o nome do produto.");
     if (!Number.isFinite(preco) || preco < 0) return toast.error("Preço inválido.");
+    if (!Number.isFinite(preco_custo) || preco_custo < 0) {
+      return toast.error("Preço de custo inválido.");
+    }
     if (!Number.isFinite(estoque) || estoque < 0) return toast.error("Estoque inválido.");
 
     setSaving(true);
@@ -191,6 +199,7 @@ export default function ProdutoNovoPage() {
         nome: nome.trim(),
         descricao: descricao.trim() || null,
         preco,
+        preco_custo,
         estoque,
         imagem_url,
         ativo,
@@ -203,6 +212,7 @@ export default function ProdutoNovoPage() {
       setNome("");
       setDescricao("");
       setPrecoTxt("0");
+      setPrecoCustoTxt("0");
       setEstoqueTxt("0");
       setAtivo(true);
       setFile(null);
@@ -292,7 +302,7 @@ export default function ProdutoNovoPage() {
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-black">Preço (R$)</label>
               <input
@@ -300,6 +310,17 @@ export default function ProdutoNovoPage() {
                 onChange={(e) => setPrecoTxt(e.target.value)}
                 inputMode="decimal"
                 placeholder="199,90"
+                className="h-11 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none transition focus:border-black/20 focus:shadow-[0_0_0_4px_rgba(235,52,16,0.12)]"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-black">Preço de custo (R$)</label>
+              <input
+                value={precoCustoTxt}
+                onChange={(e) => setPrecoCustoTxt(e.target.value)}
+                inputMode="decimal"
+                placeholder="120,00"
                 className="h-11 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none transition focus:border-black/20 focus:shadow-[0_0_0_4px_rgba(235,52,16,0.12)]"
               />
             </div>
