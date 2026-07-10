@@ -60,6 +60,19 @@ type FormState = {
   telefone: string;
 };
 
+type CreateClienteForm = FormState & {
+  email: string;
+  senha: string;
+  cep: string;
+  logradouro: string;
+  numero: string;
+  complemento: string;
+  bairro: string;
+  cidade: string;
+  uf: string;
+  referencia: string;
+};
+
 function formatDateShortBR(iso: string) {
   const d = new Date(iso);
   return new Intl.DateTimeFormat("pt-BR", {
@@ -78,6 +91,11 @@ function onlyDigits(s: string) {
 function normalizePhone(v: string) {
   const dig = onlyDigits(v);
   return dig;
+}
+
+function formatCep(value: string) {
+  const digits = onlyDigits(value).slice(0, 8);
+  return digits.length <= 5 ? digits : `${digits.slice(0, 5)}-${digits.slice(5)}`;
 }
 
 function TagKind({ kind }: { kind: ClienteItem["kind"] }) {
@@ -192,6 +210,31 @@ function Modal({
   );
 }
 
+function CreateClienteModal({ open, loading, form, setForm, onClose, onSubmit }: {
+  open: boolean; loading: boolean; form: CreateClienteForm; setForm: (form: CreateClienteForm) => void; onClose: () => void; onSubmit: () => void;
+}) {
+  const [step, setStep] = useState<1 | 2>(1);
+  useEffect(() => { if (open) setStep(1); }, [open]);
+  if (!open) return null;
+  const update = (key: keyof CreateClienteForm, value: string) => setForm({ ...form, [key]: value });
+  const next = () => {
+    if (form.nome.trim().length < 2 || !form.email.includes("@") || form.senha.length < 6 || onlyDigits(form.telefone).length < 10) {
+      toast.error("Preencha nome, e-mail, senha (mínimo 6) e telefone com DDD."); return;
+    }
+    setStep(2);
+  };
+  return <div className="fixed inset-0 z-[80]">
+    <button type="button" aria-label="Fechar" onClick={onClose} className="absolute inset-0 bg-black/40" />
+    <div className="absolute left-1/2 top-1/2 max-h-[92vh] w-[92vw] max-w-md -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-3xl bg-white p-5 shadow-xl">
+      <div className="flex items-start justify-between gap-3"><div><div className="text-lg font-semibold">Adicionar cliente</div><div className="mt-1 text-sm text-black/60">{step === 1 ? "Dados de acesso e contato." : "Endereço do cliente."}</div></div><button type="button" onClick={onClose} disabled={loading} className="grid h-10 w-10 place-items-center rounded-2xl border border-black/10"><X size={18} /></button></div>
+      <div className="mt-4 flex gap-2"><div className="h-2 flex-1 rounded-full bg-[#E83A1C]" /><div className={cn("h-2 flex-1 rounded-full", step === 2 ? "bg-[#E83A1C]" : "bg-black/10")} /></div>
+      <div className="mt-5 space-y-3">
+        {step === 1 ? <><input value={form.nome} onChange={(e) => update("nome", e.target.value)} placeholder="Nome completo" className="w-full rounded-xl border border-black/10 px-3 py-2.5" autoComplete="name" /><input value={form.email} onChange={(e) => update("email", e.target.value)} placeholder="E-mail" className="w-full rounded-xl border border-black/10 px-3 py-2.5" inputMode="email" autoComplete="email" /><input value={form.senha} onChange={(e) => update("senha", e.target.value)} placeholder="Senha (mínimo 6 caracteres)" type="password" className="w-full rounded-xl border border-black/10 px-3 py-2.5" autoComplete="new-password" /><input value={form.telefone} onChange={(e) => update("telefone", e.target.value)} placeholder="Telefone com DDD" className="w-full rounded-xl border border-black/10 px-3 py-2.5" inputMode="tel" autoComplete="tel" /><button type="button" onClick={next} className="w-full rounded-xl bg-[#E83A1C] px-4 py-2.5 text-sm font-semibold text-white">Continuar</button></> : <><input value={form.cep} onChange={(e) => update("cep", formatCep(e.target.value))} placeholder="CEP" className="w-full rounded-xl border border-black/10 px-3 py-2.5" inputMode="numeric" /><input value={form.logradouro} onChange={(e) => update("logradouro", e.target.value)} placeholder="Logradouro" className="w-full rounded-xl border border-black/10 px-3 py-2.5" /><div className="grid grid-cols-2 gap-3"><input value={form.numero} onChange={(e) => update("numero", e.target.value)} placeholder="Número" className="rounded-xl border border-black/10 px-3 py-2.5" /><input value={form.complemento} onChange={(e) => update("complemento", e.target.value)} placeholder="Complemento" className="rounded-xl border border-black/10 px-3 py-2.5" /></div><input value={form.bairro} onChange={(e) => update("bairro", e.target.value)} placeholder="Bairro" className="w-full rounded-xl border border-black/10 px-3 py-2.5" /><div className="grid grid-cols-2 gap-3"><input value={form.cidade} onChange={(e) => update("cidade", e.target.value)} placeholder="Cidade" className="rounded-xl border border-black/10 px-3 py-2.5" /><input value={form.uf} onChange={(e) => update("uf", e.target.value.toUpperCase().slice(0, 2))} placeholder="UF" className="rounded-xl border border-black/10 px-3 py-2.5" /></div><input value={form.referencia} onChange={(e) => update("referencia", e.target.value)} placeholder="Referência" className="w-full rounded-xl border border-black/10 px-3 py-2.5" /><div className="flex gap-2"><button type="button" onClick={() => setStep(1)} className="flex-1 rounded-xl border border-black/10 px-4 py-2.5">Voltar</button><button type="button" onClick={onSubmit} disabled={loading} className="flex-1 rounded-xl bg-[#E83A1C] px-4 py-2.5 font-semibold text-white disabled:opacity-60">{loading ? "Criando..." : "Criar cliente"}</button></div></>}
+      </div>
+    </div>
+  </div>;
+}
+
 export default function DashboardClientesPage() {
   const [loading, setLoading] = useState(true);
 
@@ -209,6 +252,8 @@ export default function DashboardClientesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>("create");
   const [saving, setSaving] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState<CreateClienteForm>({ nome: "", email: "", senha: "", telefone: "", cep: "", logradouro: "", numero: "", complemento: "", bairro: "", cidade: "", uf: "", referencia: "" });
   const [editing, setEditing] = useState<ClienteItem | null>(null);
   const [form, setForm] = useState<FormState>({ nome: "", telefone: "" });
 
@@ -335,10 +380,8 @@ export default function DashboardClientesPage() {
   }, []);
 
   function openCreate() {
-    setModalMode("create");
-    setEditing(null);
-    setForm({ nome: "", telefone: "" });
-    setModalOpen(true);
+    setCreateForm({ nome: "", email: "", senha: "", telefone: "", cep: "", logradouro: "", numero: "", complemento: "", bairro: "", cidade: "", uf: "", referencia: "" });
+    setCreateOpen(true);
   }
 
   function openEdit(item: ClienteItem) {
@@ -367,19 +410,7 @@ export default function DashboardClientesPage() {
 
     setSaving(true);
     try {
-      if (modalMode === "create") {
-        // cria contato manual
-        const payload = {
-          empresa_id: empresa.id,
-          nome,
-          telefone: telefone ? normalizePhone(telefone) : null,
-        };
-
-        const { error } = await supabaseClient.from("clientes_contatos").insert(payload);
-        if (error) throw error;
-
-        toast.success("Contato adicionado.");
-      } else {
+      {
         if (!editing) {
           toast.error("Item inválido.");
           return;
@@ -427,6 +458,24 @@ export default function DashboardClientesPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleCreateCliente() {
+    if (!empresa?.id) return;
+    if (onlyDigits(createForm.cep).length !== 8 || createForm.logradouro.trim().length < 2 || !createForm.numero.trim() || createForm.bairro.trim().length < 2 || createForm.cidade.trim().length < 2 || createForm.uf.length !== 2) {
+      toast.error("Preencha todos os campos obrigatórios do endereço."); return;
+    }
+    try {
+      setSaving(true);
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      const response = await fetch("/api/clientes", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token ?? ""}` }, body: JSON.stringify({ empresa_id: empresa.id, ...createForm }) });
+      const result = await response.json() as { error?: string; cliente?: ClienteUsuarioRow };
+      if (!response.ok) throw new Error(result.error || "Não foi possível criar o cliente.");
+      if (result.cliente) setUsuarios((current) => [result.cliente!, ...current]);
+      setCreateOpen(false);
+      toast.success("Cliente criado com acesso por e-mail e senha.");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Não foi possível criar o cliente."); }
+    finally { setSaving(false); }
   }
 
   if (!loading && !empresa) {
@@ -510,7 +559,7 @@ export default function DashboardClientesPage() {
               "bg-[#E83A1C] hover:brightness-95"
             )}
           >
-            <Plus size={18} /> Adicionar contato
+            <Plus size={18} /> Adicionar cliente
           </button>
         </div>
 
@@ -685,6 +734,14 @@ export default function DashboardClientesPage() {
           setEditing(null);
         }}
         onSubmit={handleSubmit}
+      />
+      <CreateClienteModal
+        open={createOpen}
+        loading={saving}
+        form={createForm}
+        setForm={setCreateForm}
+        onClose={() => !saving && setCreateOpen(false)}
+        onSubmit={handleCreateCliente}
       />
     </div>
   );

@@ -16,6 +16,10 @@ export type PedidoPdfData = {
   cliente_nome: string | null;
   cliente_telefone: string | null;
   cliente_endereco: string | null;
+  parcelado?: boolean;
+  valor_entrada?: number | null;
+  quantidade_parcelas?: number | null;
+  valor_parcela?: number | null;
   itens: PedidoPdfItem[];
 };
 
@@ -48,7 +52,14 @@ function drawLine(doc: jsPDF, y: number) {
   doc.line(14, y, 196, y);
 }
 
-export function generatePedidoPdf(pedido: PedidoPdfData) {
+export type PedidoPdfFormat = "a4" | "pdv";
+
+export function generatePedidoPdf(pedido: PedidoPdfData, format: PedidoPdfFormat = "a4") {
+  if (format === "pdv") {
+    generatePedidoPdvPdf(pedido);
+    return;
+  }
+
   const doc = new jsPDF({
     orientation: "p",
     unit: "mm",
@@ -88,6 +99,21 @@ export function generatePedidoPdf(pedido: PedidoPdfData) {
 
   y += enderecoLinhas.length * 5 + 4;
   drawLine(doc, y);
+
+  if (pedido.parcelado && pedido.quantidade_parcelas && pedido.valor_parcela !== null && pedido.valor_parcela !== undefined) {
+    y += 8;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text("Pagamento parcelado", left, y);
+    y += 6;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text(`Entrada: ${formatBRL(pedido.valor_entrada ?? 0)}`, left, y);
+    y += 5;
+    doc.text(`${pedido.quantidade_parcelas}x de ${formatBRL(pedido.valor_parcela)}`, left, y);
+    y += 4;
+    drawLine(doc, y);
+  }
 
   y += 24;
   doc.setFont("helvetica", "bold");
@@ -148,4 +174,97 @@ export function generatePedidoPdf(pedido: PedidoPdfData) {
   doc.text(`Total: ${formatBRL(pedido.total)}`, right, y, { align: "right" });
 
   doc.save(`pedido-${formatPedidoShortId(pedido.id)}.pdf`);
+}
+
+function generatePedidoPdvPdf(pedido: PedidoPdfData) {
+  const pageWidth = 80;
+  const left = 4;
+  const right = pageWidth - 4;
+  const contentWidth = right - left;
+  const measureDoc = new jsPDF({ orientation: "p", unit: "mm", format: [pageWidth, 200] });
+  const endereco = measureDoc.splitTextToSize(`Endereço: ${pedido.cliente_endereco || "-"}`, contentWidth);
+  const itemLines = pedido.itens.map((item) =>
+    measureDoc.splitTextToSize(item.produto_nome || item.produto_id, contentWidth)
+  );
+  const parcelamentoLines = pedido.parcelado && pedido.quantidade_parcelas && pedido.valor_parcela !== null && pedido.valor_parcela !== undefined ? 13 : 0;
+  const height = Math.max(
+    110,
+    51 + parcelamentoLines + endereco.length * 4 + itemLines.reduce((total, lines) => total + lines.length * 4 + 11, 0)
+  );
+  const doc = new jsPDF({ orientation: "p", unit: "mm", format: [pageWidth, height] });
+  let y = 8;
+
+  const separator = () => {
+    doc.setDrawColor(160, 160, 160);
+    doc.setLineWidth(0.2);
+    doc.line(left, y, right, y);
+  };
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text(`PEDIDO #${formatPedidoShortId(pedido.id)}`, pageWidth / 2, y, { align: "center" });
+  y += 5;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.5);
+  doc.text(formatPdfDate(pedido.criado_em), pageWidth / 2, y, { align: "center" });
+
+  y += 5;
+  separator();
+  y += 5;
+  doc.setFontSize(8);
+  doc.text(`Cliente: ${pedido.cliente_nome || "Cliente sem nome"}`, left, y);
+  y += 4;
+  doc.text(`Telefone: ${pedido.cliente_telefone || "-"}`, left, y);
+  y += 4;
+  doc.text(endereco, left, y);
+  y += endereco.length * 4 + 2;
+  separator();
+
+  if (pedido.parcelado && pedido.quantidade_parcelas && pedido.valor_parcela !== null && pedido.valor_parcela !== undefined) {
+    y += 5;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.text("PAGAMENTO PARCELADO", left, y);
+    y += 4;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.text(`Entrada: ${formatBRL(pedido.valor_entrada ?? 0)}`, left, y);
+    y += 4;
+    doc.text(`${pedido.quantidade_parcelas}x de ${formatBRL(pedido.valor_parcela)}`, left, y);
+    y += 3;
+    separator();
+  }
+
+  y += 5;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("ITENS", left, y);
+  y += 5;
+
+  pedido.itens.forEach((item, index) => {
+    const nome = doc.splitTextToSize(item.produto_nome || item.produto_id, contentWidth);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.text(nome, left, y);
+    y += nome.length * 4;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.text(`${item.quantidade} x ${formatBRL(item.preco_unitario)}`, left, y);
+    doc.text(formatBRL(item.subtotal), right, y, { align: "right" });
+    y += 5;
+    if (index < pedido.itens.length - 1) {
+      separator();
+      y += 4;
+    }
+  });
+
+  y += 2;
+  separator();
+  y += 6;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text(`TOTAL: ${formatBRL(pedido.total)}`, right, y, { align: "right" });
+
+  doc.save(`pedido-${formatPedidoShortId(pedido.id)}-pdv.pdf`);
 }

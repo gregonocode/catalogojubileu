@@ -16,7 +16,7 @@ import {
   XCircle,
   ClipboardList,
 } from "lucide-react";
-import { generatePedidoPdf } from "@/lib/pedidos/pdf";
+import { generatePedidoPdf, type PedidoPdfFormat } from "@/lib/pedidos/pdf";
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -32,6 +32,10 @@ type PedidoDetalheRow = {
   total: number | string;
   criado_em: string;
   atualizado_em: string;
+  parcelado: boolean | null;
+  valor_entrada: number | string | null;
+  quantidade_parcelas: number | null;
+  valor_parcela: number | string | null;
   clientes?:
     | {
         nome: string | null;
@@ -91,6 +95,10 @@ type PedidoDetalhe = {
   atualizado_em: string;
   cliente_nome: string | null;
   cliente_telefone: string | null;
+  parcelado: boolean;
+  valor_entrada: number | null;
+  quantidade_parcelas: number | null;
+  valor_parcela: number | null;
 };
 
 type PedidoItem = {
@@ -206,6 +214,12 @@ export default function PedidoDetalhePage() {
   const [endereco, setEndereco] = useState<EnderecoRow | null>(null);
   const [itens, setItens] = useState<PedidoItem[]>([]);
   const [actionLoading, setActionLoading] = useState<"aprovar" | "cancelar" | null>(null);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [parcelado, setParcelado] = useState(false);
+  const [valorEntrada, setValorEntrada] = useState("");
+  const [quantidadeParcelas, setQuantidadeParcelas] = useState("");
+  const [parcelamentoSaving, setParcelamentoSaving] = useState(false);
+  const [mostrarCalculoParcelas, setMostrarCalculoParcelas] = useState(false);
 
   const totalItens = useMemo(() => {
     return itens.reduce((acc, item) => acc + item.quantidade, 0);
@@ -214,6 +228,16 @@ export default function PedidoDetalhePage() {
   const subtotalCalculado = useMemo(() => {
     return itens.reduce((acc, item) => acc + item.subtotal, 0);
   }, [itens]);
+
+  const valorParcelaCalculado = useMemo(() => {
+    if (!pedido) return null;
+    const entrada = Number(valorEntrada);
+    const parcelas = Number(quantidadeParcelas);
+    if (!Number.isFinite(entrada) || entrada < 0 || !Number.isInteger(parcelas) || parcelas < 1) {
+      return null;
+    }
+    return Math.round(((pedido.total - entrada) / parcelas) * 100) / 100;
+  }, [pedido, quantidadeParcelas, valorEntrada]);
 
   async function loadPedido() {
   try {
@@ -232,6 +256,7 @@ export default function PedidoDetalhePage() {
         .select(
           `
           id, empresa_id, cliente_usuario_id, status, total, criado_em, atualizado_em,
+          parcelado, valor_entrada, quantidade_parcelas, valor_parcela,
           clientes:clientes!pedidos_cliente_usuario_id_fkey(nome, telefone)
           `
         )
@@ -272,9 +297,17 @@ export default function PedidoDetalhePage() {
         atualizado_em: pedidoRow.atualizado_em,
         cliente_nome: clienteDireto?.nome ?? clienteJoin.nome,
         cliente_telefone: clienteDireto?.telefone ?? clienteJoin.telefone,
+        parcelado: pedidoRow.parcelado ?? false,
+        valor_entrada: toNullableNumber(pedidoRow.valor_entrada),
+        quantidade_parcelas: pedidoRow.quantidade_parcelas ?? null,
+        valor_parcela: toNullableNumber(pedidoRow.valor_parcela),
       };
 
       setPedido(pedidoNormalizado);
+      setParcelado(pedidoNormalizado.parcelado);
+      setValorEntrada(pedidoNormalizado.valor_entrada?.toFixed(2) ?? "");
+      setQuantidadeParcelas(pedidoNormalizado.quantidade_parcelas?.toString() ?? "");
+      setMostrarCalculoParcelas(pedidoNormalizado.parcelado);
 
       if (pedidoRow.cliente_usuario_id) {
         const { data: enderecoData, error: enderecoError } = await supabaseClient
@@ -377,7 +410,58 @@ export default function PedidoDetalhePage() {
     }
   }
 
-  function exportarPedidoPdf() {
+  async function salvarParcelamento() {
+    if (!pedido) return;
+
+    const entrada = Number(valorEntrada);
+    const parcelas = Number(quantidadeParcelas);
+
+    if (parcelado && (!Number.isFinite(entrada) || entrada < 0 || entrada > pedido.total)) {
+      toast.error("Informe uma entrada entre R$ 0,00 e o total do pedido.");
+      return;
+    }
+
+    if (parcelado && (!Number.isInteger(parcelas) || parcelas < 1)) {
+      toast.error("Informe uma quantidade válida de parcelas.");
+      return;
+    }
+
+    try {
+      setParcelamentoSaving(true);
+      const valorParcela = parcelado ? valorParcelaCalculado : null;
+      const { error } = await supabaseClient
+        .from("pedidos")
+        .update({
+          parcelado,
+          valor_entrada: parcelado ? entrada : null,
+          quantidade_parcelas: parcelado ? parcelas : null,
+          valor_parcela: valorParcela,
+        })
+        .eq("id", pedido.id);
+
+      if (error) throw error;
+
+      setPedido((current) =>
+        current
+          ? {
+              ...current,
+              parcelado,
+              valor_entrada: parcelado ? entrada : null,
+              quantidade_parcelas: parcelado ? parcelas : null,
+              valor_parcela: valorParcela,
+            }
+          : current
+      );
+      toast.success(parcelado ? "Parcelamento salvo." : "Parcelamento removido.");
+    } catch (err) {
+      console.error(err);
+      toast.error("Não foi possível salvar o parcelamento.");
+    } finally {
+      setParcelamentoSaving(false);
+    }
+  }
+
+  function exportarPedidoPdf(format: PedidoPdfFormat = "a4") {
     if (!pedido) {
       toast.error("Pedido ainda não carregado.");
       return;
@@ -390,8 +474,13 @@ export default function PedidoDetalhePage() {
       cliente_nome: pedido.cliente_nome,
       cliente_telefone: pedido.cliente_telefone,
       cliente_endereco: formatEndereco(endereco),
+      parcelado: pedido.parcelado,
+      valor_entrada: pedido.valor_entrada,
+      quantidade_parcelas: pedido.quantidade_parcelas,
+      valor_parcela: pedido.valor_parcela,
       itens,
-    });
+    }, format);
+    setExportModalOpen(false);
   }
 
   useEffect(() => {
@@ -401,7 +490,7 @@ export default function PedidoDetalhePage() {
 
   useEffect(() => {
     function handleExportPedido() {
-      exportarPedidoPdf();
+      setExportModalOpen(true);
     }
 
     window.addEventListener("dashboard:export-pedido", handleExportPedido);
@@ -534,6 +623,55 @@ export default function PedidoDetalhePage() {
               </div>
             </section>
 
+            {exportModalOpen && (
+              <div
+                className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="exportar-pedido-titulo"
+                onMouseDown={() => setExportModalOpen(false)}
+              >
+                <div
+                  className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl"
+                  onMouseDown={(event) => event.stopPropagation()}
+                >
+                  <h2 id="exportar-pedido-titulo" className="text-lg font-semibold text-black">
+                    Formato de exportação
+                  </h2>
+                  <p className="mt-2 text-sm text-black/60">
+                    Escolha o formato do PDF para este pedido.
+                  </p>
+
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => exportarPedidoPdf("a4")}
+                      className="rounded-2xl border border-black/10 p-4 text-left hover:bg-black/5"
+                    >
+                      <span className="block font-semibold text-black">A4</span>
+                      <span className="mt-1 block text-xs text-black/55">Formato padrão, em página A4.</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => exportarPedidoPdf("pdv")}
+                      className="rounded-2xl border border-black/10 p-4 text-left hover:bg-black/5"
+                    >
+                      <span className="block font-semibold text-black">PDV</span>
+                      <span className="mt-1 block text-xs text-black/55">Bobina térmica com largura de 80 mm.</span>
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setExportModalOpen(false)}
+                    className="mt-4 w-full rounded-2xl border border-black/10 px-4 py-2 text-sm hover:bg-black/5"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
               <section className="rounded-3xl border border-black/10 bg-white p-6 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)] lg:col-span-2">
                 <div className="flex items-center gap-2 text-sm font-semibold text-black">
@@ -578,6 +716,61 @@ export default function PedidoDetalhePage() {
                       {endereco.referencia}
                     </div>
                   ) : null}
+                </div>
+                <div className="mt-4 rounded-2xl border border-black/10 bg-white p-4">
+                  <label className="flex cursor-pointer items-center justify-between gap-4">
+                    <span>
+                      <span className="block text-sm font-semibold text-black">Dividir em parcelas</span>
+                      <span className="mt-1 block text-xs text-black/55">Registre a entrada e o valor das parcelas deste pedido.</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={parcelado}
+                      onChange={(event) => {
+                        setParcelado(event.target.checked);
+                        setMostrarCalculoParcelas(false);
+                      }}
+                      className="h-5 w-5 accent-[#EB3410]"
+                    />
+                  </label>
+
+                  {parcelado && (
+                    <div className="mt-4 border-t border-black/10 pt-4">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="text-sm text-black/70">
+                          Valor da entrada
+                          <input type="number" min="0" max={pedido.total} step="0.01" inputMode="decimal" value={valorEntrada} onChange={(event) => { setValorEntrada(event.target.value); setMostrarCalculoParcelas(false); }} placeholder="0,00" className="mt-1 h-11 w-full rounded-xl border border-black/10 px-3 outline-none focus:border-black/25" />
+                        </label>
+                        <label className="text-sm text-black/70">
+                          Número de parcelas
+                          <input type="number" min="1" step="1" inputMode="numeric" value={quantidadeParcelas} onChange={(event) => { setQuantidadeParcelas(event.target.value); setMostrarCalculoParcelas(false); }} placeholder="Ex.: 3" className="mt-1 h-11 w-full rounded-xl border border-black/10 px-3 outline-none focus:border-black/25" />
+                        </label>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (valorParcelaCalculado === null || valorParcelaCalculado < 0) {
+                              toast.error("Preencha uma entrada e uma quantidade de parcelas válidas.");
+                              return;
+                            }
+                            setMostrarCalculoParcelas(true);
+                          }}
+                          className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm hover:bg-black/5"
+                        >
+                          Calcular
+                        </button>
+                        {mostrarCalculoParcelas && valorParcelaCalculado !== null && valorParcelaCalculado >= 0 && (
+                          <span className="text-sm font-semibold text-black">{quantidadeParcelas}x de {formatBRL(valorParcelaCalculado)}</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <button type="button" onClick={salvarParcelamento} disabled={parcelamentoSaving} className="mt-4 rounded-xl bg-[#EB3410] px-4 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60">
+                    {parcelamentoSaving ? "Salvando..." : "Salvar parcelamento"}
+                  </button>
                 </div>
               </section>
 
@@ -695,4 +888,8 @@ export default function PedidoDetalhePage() {
       </div>
     </div>
   );
+}
+
+function toNullableNumber(v: number | string | null) {
+  return v === null ? null : toNumber(v);
 }

@@ -53,6 +53,8 @@ function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+const PRODUCTS_PER_PAGE = 20;
+
 export default function ProdutosPage() {
   const [loading, setLoading] = useState(true);
   const [empresa, setEmpresa] = useState<Empresa | null>(null);
@@ -63,6 +65,7 @@ export default function ProdutosPage() {
 
   const [q, setQ] = useState("");
   const [onlyAtivos, setOnlyAtivos] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -75,6 +78,20 @@ export default function ProdutosPage() {
       );
     });
   }, [produtos, q, onlyAtivos]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PRODUCTS_PER_PAGE));
+  const paginatedProducts = useMemo(() => {
+    const start = (currentPage - 1) * PRODUCTS_PER_PAGE;
+    return filtered.slice(start, start + PRODUCTS_PER_PAGE);
+  }, [filtered, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [q, onlyAtivos]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
 
   async function load() {
     try {
@@ -343,7 +360,7 @@ export default function ProdutosPage() {
                   </td>
                 </tr>
               ) : (
-                filtered.map((p) => {
+                paginatedProducts.map((p) => {
                   const catName = p.categoria_id ? categoriasMap.get(p.categoria_id) : null;
 
                   return (
@@ -412,6 +429,23 @@ export default function ProdutosPage() {
             </tbody>
           </table>
         </div>
+
+        {!loading && filtered.length > PRODUCTS_PER_PAGE && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+            <span className="text-black/55">
+              Mostrando {(currentPage - 1) * PRODUCTS_PER_PAGE + 1}-{Math.min(currentPage * PRODUCTS_PER_PAGE, filtered.length)} de {filtered.length}
+            </span>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPage === 1} className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50">
+                Anterior
+              </button>
+              <span className="px-2 text-black/60">Página {currentPage} de {totalPages}</span>
+              <button type="button" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPage === totalPages} className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50">
+                Próxima
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Rodapé listagem */}
         <div className="mt-4 text-xs text-black/45">
