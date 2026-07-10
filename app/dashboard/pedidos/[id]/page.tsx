@@ -36,6 +36,11 @@ type PedidoDetalheRow = {
   valor_entrada: number | string | null;
   quantidade_parcelas: number | null;
   valor_parcela: number | string | null;
+  desconto_ativo: boolean | null;
+  desconto_tipo: "valor" | "percentual" | null;
+  desconto_valor: number | string | null;
+  desconto_calculado: number | string | null;
+  total_com_desconto: number | string | null;
   clientes?:
     | {
         nome: string | null;
@@ -99,6 +104,11 @@ type PedidoDetalhe = {
   valor_entrada: number | null;
   quantidade_parcelas: number | null;
   valor_parcela: number | null;
+  desconto_ativo: boolean;
+  desconto_tipo: "valor" | "percentual" | null;
+  desconto_valor: number | null;
+  desconto_calculado: number | null;
+  total_com_desconto: number | null;
 };
 
 type PedidoItem = {
@@ -220,6 +230,10 @@ export default function PedidoDetalhePage() {
   const [quantidadeParcelas, setQuantidadeParcelas] = useState("");
   const [parcelamentoSaving, setParcelamentoSaving] = useState(false);
   const [mostrarCalculoParcelas, setMostrarCalculoParcelas] = useState(false);
+  const [descontoAtivo, setDescontoAtivo] = useState(false);
+  const [tipoDesconto, setTipoDesconto] = useState<"valor" | "percentual">("valor");
+  const [valorDesconto, setValorDesconto] = useState("");
+  const [descontoSaving, setDescontoSaving] = useState(false);
 
   const totalItens = useMemo(() => {
     return itens.reduce((acc, item) => acc + item.quantidade, 0);
@@ -239,6 +253,13 @@ export default function PedidoDetalhePage() {
     return Math.round(((pedido.total - entrada) / parcelas) * 100) / 100;
   }, [pedido, quantidadeParcelas, valorEntrada]);
 
+  const descontoCalculado = useMemo(() => {
+    if (!pedido) return null;
+    const valor = Number(valorDesconto);
+    if (!Number.isFinite(valor) || valor < 0) return null;
+    return Math.round((tipoDesconto === "percentual" ? pedido.total * (valor / 100) : valor) * 100) / 100;
+  }, [pedido, tipoDesconto, valorDesconto]);
+
   async function loadPedido() {
   try {
     if (!pedidoId) {
@@ -257,6 +278,7 @@ export default function PedidoDetalhePage() {
           `
           id, empresa_id, cliente_usuario_id, status, total, criado_em, atualizado_em,
           parcelado, valor_entrada, quantidade_parcelas, valor_parcela,
+          desconto_ativo, desconto_tipo, desconto_valor, desconto_calculado, total_com_desconto,
           clientes:clientes!pedidos_cliente_usuario_id_fkey(nome, telefone)
           `
         )
@@ -301,6 +323,11 @@ export default function PedidoDetalhePage() {
         valor_entrada: toNullableNumber(pedidoRow.valor_entrada),
         quantidade_parcelas: pedidoRow.quantidade_parcelas ?? null,
         valor_parcela: toNullableNumber(pedidoRow.valor_parcela),
+        desconto_ativo: pedidoRow.desconto_ativo ?? false,
+        desconto_tipo: pedidoRow.desconto_tipo ?? null,
+        desconto_valor: toNullableNumber(pedidoRow.desconto_valor),
+        desconto_calculado: toNullableNumber(pedidoRow.desconto_calculado),
+        total_com_desconto: toNullableNumber(pedidoRow.total_com_desconto),
       };
 
       setPedido(pedidoNormalizado);
@@ -308,6 +335,9 @@ export default function PedidoDetalhePage() {
       setValorEntrada(pedidoNormalizado.valor_entrada?.toFixed(2) ?? "");
       setQuantidadeParcelas(pedidoNormalizado.quantidade_parcelas?.toString() ?? "");
       setMostrarCalculoParcelas(pedidoNormalizado.parcelado);
+      setDescontoAtivo(pedidoNormalizado.desconto_ativo);
+      setTipoDesconto(pedidoNormalizado.desconto_tipo ?? "valor");
+      setValorDesconto(pedidoNormalizado.desconto_valor?.toFixed(2) ?? "");
 
       if (pedidoRow.cliente_usuario_id) {
         const { data: enderecoData, error: enderecoError } = await supabaseClient
@@ -461,6 +491,47 @@ export default function PedidoDetalhePage() {
     }
   }
 
+  async function salvarDesconto() {
+    if (!pedido) return;
+    const valor = Number(valorDesconto);
+    if (!Number.isFinite(valor) || valor < 0 || (tipoDesconto === "percentual" && valor > 100) || (descontoCalculado ?? 0) > pedido.total) {
+      toast.error("Informe um desconto válido para o total do pedido.");
+      return;
+    }
+
+    try {
+      setDescontoSaving(true);
+      const calculado = descontoCalculado ?? 0;
+      const totalComDesconto = Math.round((pedido.total - calculado) * 100) / 100;
+      const { error } = await supabaseClient
+        .from("pedidos")
+        .update({
+          desconto_ativo: descontoAtivo,
+          desconto_tipo: descontoAtivo ? tipoDesconto : null,
+          desconto_valor: descontoAtivo ? valor : null,
+          desconto_calculado: descontoAtivo ? calculado : null,
+          total_com_desconto: descontoAtivo ? totalComDesconto : null,
+        })
+        .eq("id", pedido.id);
+      if (error) throw error;
+
+      setPedido((current) => current ? {
+        ...current,
+        desconto_ativo: descontoAtivo,
+        desconto_tipo: descontoAtivo ? tipoDesconto : null,
+        desconto_valor: descontoAtivo ? valor : null,
+        desconto_calculado: descontoAtivo ? calculado : null,
+        total_com_desconto: descontoAtivo ? totalComDesconto : null,
+      } : current);
+      toast.success("Desconto salvo.");
+    } catch (err) {
+      console.error(err);
+      toast.error("Não foi possível salvar o desconto.");
+    } finally {
+      setDescontoSaving(false);
+    }
+  }
+
   function exportarPedidoPdf(format: PedidoPdfFormat = "a4") {
     if (!pedido) {
       toast.error("Pedido ainda não carregado.");
@@ -478,6 +549,11 @@ export default function PedidoDetalhePage() {
       valor_entrada: pedido.valor_entrada,
       quantidade_parcelas: pedido.quantidade_parcelas,
       valor_parcela: pedido.valor_parcela,
+      desconto_ativo: pedido.desconto_ativo,
+      desconto_tipo: pedido.desconto_tipo,
+      desconto_valor: pedido.desconto_valor,
+      desconto_calculado: pedido.desconto_calculado,
+      total_com_desconto: pedido.total_com_desconto,
       itens,
     }, format);
     setExportModalOpen(false);
@@ -768,9 +844,47 @@ export default function PedidoDetalhePage() {
                     </div>
                   )}
 
-                  <button type="button" onClick={salvarParcelamento} disabled={parcelamentoSaving} className="mt-4 rounded-xl bg-[#EB3410] px-4 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60">
-                    {parcelamentoSaving ? "Salvando..." : "Salvar parcelamento"}
-                  </button>
+                  {parcelado && (
+                    <button type="button" onClick={salvarParcelamento} disabled={parcelamentoSaving} className="mt-4 rounded-xl bg-[#EB3410] px-4 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60">
+                      {parcelamentoSaving ? "Salvando..." : "Salvar parcelamento"}
+                    </button>
+                  )}
+
+                  <div className="mt-4 border-t border-black/10 pt-4">
+                    <label className="flex cursor-pointer items-center justify-between gap-4">
+                      <span>
+                        <span className="block text-sm font-semibold text-black">Aplicar desconto</span>
+                        <span className="mt-1 block text-xs text-black/55">Escolha um desconto em valor ou percentual.</span>
+                      </span>
+                      <input type="checkbox" checked={descontoAtivo} onChange={(event) => setDescontoAtivo(event.target.checked)} className="h-5 w-5 accent-[#EB3410]" />
+                    </label>
+
+                    {descontoAtivo && (
+                      <div className="mt-4">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="text-sm text-black/70">
+                            Tipo de desconto
+                            <select value={tipoDesconto} onChange={(event) => setTipoDesconto(event.target.value as "valor" | "percentual")} className="mt-1 h-11 w-full rounded-xl border border-black/10 bg-white px-3 outline-none focus:border-black/25">
+                              <option value="valor">Valor (R$)</option>
+                              <option value="percentual">Percentual (%)</option>
+                            </select>
+                          </label>
+                          <label className="text-sm text-black/70">
+                            {tipoDesconto === "valor" ? "Valor do desconto" : "Percentual do desconto"}
+                            <input type="number" min="0" max={tipoDesconto === "valor" ? pedido.total : 100} step="0.01" inputMode="decimal" value={valorDesconto} onChange={(event) => setValorDesconto(event.target.value)} placeholder={tipoDesconto === "valor" ? "Ex.: 100,00" : "Ex.: 10"} className="mt-1 h-11 w-full rounded-xl border border-black/10 px-3 outline-none focus:border-black/25" />
+                          </label>
+                        </div>
+                        {descontoCalculado !== null && descontoCalculado >= 0 && descontoCalculado <= pedido.total && (
+                          <div className="mt-3 rounded-xl bg-black/5 px-3 py-2 text-sm text-black/70">
+                            Desconto: <b>{formatBRL(descontoCalculado)}</b> · Total final: <b>{formatBRL(pedido.total - descontoCalculado)}</b>
+                          </div>
+                        )}
+                        <button type="button" onClick={salvarDesconto} disabled={descontoSaving} className="mt-4 rounded-xl bg-[#EB3410] px-4 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60">
+                          {descontoSaving ? "Salvando..." : "Salvar desconto"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </section>
 

@@ -20,6 +20,11 @@ export type PedidoPdfData = {
   valor_entrada?: number | null;
   quantidade_parcelas?: number | null;
   valor_parcela?: number | null;
+  desconto_ativo?: boolean;
+  desconto_tipo?: "valor" | "percentual" | null;
+  desconto_valor?: number | null;
+  desconto_calculado?: number | null;
+  total_com_desconto?: number | null;
   itens: PedidoPdfItem[];
 };
 
@@ -67,6 +72,7 @@ export function generatePedidoPdf(pedido: PedidoPdfData, format: PedidoPdfFormat
   });
 
   const pageWidth = 210;
+  const totalFinal = pedido.desconto_ativo && pedido.total_com_desconto !== null && pedido.total_com_desconto !== undefined ? pedido.total_com_desconto : pedido.total;
   const left = 14;
   const right = 196;
   let y = 18;
@@ -151,12 +157,19 @@ export function generatePedidoPdf(pedido: PedidoPdfData, format: PedidoPdfFormat
   doc.text(`Subtotal: ${formatBRL(pedido.total)}`, right, y, { align: "right" });
 
   y += 8;
-  doc.text(`Dinheiro: ${formatBRL(pedido.total)}`, right, y, { align: "right" });
+  doc.text(`Dinheiro: ${formatBRL(totalFinal)}`, right, y, { align: "right" });
+
+  if (pedido.desconto_ativo && pedido.desconto_calculado !== null && pedido.desconto_calculado !== undefined) {
+    y += 8;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.text(`Desconto: -${formatBRL(pedido.desconto_calculado)}`, right, y, { align: "right" });
+  }
 
   y += 10;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(13);
-  doc.text(`Total: ${formatBRL(pedido.total)}`, right, y, { align: "right" });
+  doc.text(`Total: ${formatBRL(totalFinal)}`, right, y, { align: "right" });
 
   if (pedido.parcelado && pedido.quantidade_parcelas && pedido.valor_parcela !== null && pedido.valor_parcela !== undefined) {
     y += 10;
@@ -179,6 +192,7 @@ function generatePedidoPdvPdf(pedido: PedidoPdfData) {
   const left = 4;
   const right = pageWidth - 4;
   const contentWidth = right - left;
+  const totalFinal = pedido.desconto_ativo && pedido.total_com_desconto !== null && pedido.total_com_desconto !== undefined ? pedido.total_com_desconto : pedido.total;
   const measureDoc = new jsPDF({ orientation: "p", unit: "mm", format: [pageWidth, 200] });
   const endereco = measureDoc.splitTextToSize(`Endereço: ${pedido.cliente_endereco || "-"}`, contentWidth);
   const itemLines = pedido.itens.map((item) =>
@@ -247,7 +261,14 @@ function generatePedidoPdvPdf(pedido: PedidoPdfData) {
   y += 6;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  doc.text(`TOTAL: ${formatBRL(pedido.total)}`, right, y, { align: "right" });
+  doc.text(`TOTAL: ${formatBRL(totalFinal)}`, right, y, { align: "right" });
+
+  if (pedido.desconto_ativo && pedido.desconto_calculado !== null && pedido.desconto_calculado !== undefined) {
+    y += 4;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.text(`Desconto: -${formatBRL(pedido.desconto_calculado)}`, right, y, { align: "right" });
+  }
 
   if (pedido.parcelado && pedido.quantidade_parcelas && pedido.valor_parcela !== null && pedido.valor_parcela !== undefined) {
     y += 5;
