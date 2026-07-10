@@ -100,21 +100,6 @@ export function generatePedidoPdf(pedido: PedidoPdfData, format: PedidoPdfFormat
   y += enderecoLinhas.length * 5 + 4;
   drawLine(doc, y);
 
-  if (pedido.parcelado && pedido.quantidade_parcelas && pedido.valor_parcela !== null && pedido.valor_parcela !== undefined) {
-    y += 8;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.text("Pagamento parcelado", left, y);
-    y += 6;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.text(`Entrada: ${formatBRL(pedido.valor_entrada ?? 0)}`, left, y);
-    y += 5;
-    doc.text(`${pedido.quantidade_parcelas}x de ${formatBRL(pedido.valor_parcela)}`, left, y);
-    y += 4;
-    drawLine(doc, y);
-  }
-
   y += 24;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
@@ -173,6 +158,19 @@ export function generatePedidoPdf(pedido: PedidoPdfData, format: PedidoPdfFormat
   doc.setFontSize(13);
   doc.text(`Total: ${formatBRL(pedido.total)}`, right, y, { align: "right" });
 
+  if (pedido.parcelado && pedido.quantidade_parcelas && pedido.valor_parcela !== null && pedido.valor_parcela !== undefined) {
+    y += 10;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text("Pagamento parcelado", right, y, { align: "right" });
+    y += 6;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text(`Entrada: ${formatBRL(pedido.valor_entrada ?? 0)}`, right, y, { align: "right" });
+    y += 5;
+    doc.text(`${pedido.quantidade_parcelas}x de ${formatBRL(pedido.valor_parcela)}`, right, y, { align: "right" });
+  }
+
   doc.save(`pedido-${formatPedidoShortId(pedido.id)}.pdf`);
 }
 
@@ -220,21 +218,6 @@ function generatePedidoPdvPdf(pedido: PedidoPdfData) {
   y += endereco.length * 4 + 2;
   separator();
 
-  if (pedido.parcelado && pedido.quantidade_parcelas && pedido.valor_parcela !== null && pedido.valor_parcela !== undefined) {
-    y += 5;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8.5);
-    doc.text("PAGAMENTO PARCELADO", left, y);
-    y += 4;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.text(`Entrada: ${formatBRL(pedido.valor_entrada ?? 0)}`, left, y);
-    y += 4;
-    doc.text(`${pedido.quantidade_parcelas}x de ${formatBRL(pedido.valor_parcela)}`, left, y);
-    y += 3;
-    separator();
-  }
-
   y += 5;
 
   doc.setFont("helvetica", "bold");
@@ -265,6 +248,19 @@ function generatePedidoPdvPdf(pedido: PedidoPdfData) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
   doc.text(`TOTAL: ${formatBRL(pedido.total)}`, right, y, { align: "right" });
+
+  if (pedido.parcelado && pedido.quantidade_parcelas && pedido.valor_parcela !== null && pedido.valor_parcela !== undefined) {
+    y += 5;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.text("PAGAMENTO PARCELADO", right, y, { align: "right" });
+    y += 4;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.text(`Entrada: ${formatBRL(pedido.valor_entrada ?? 0)}`, right, y, { align: "right" });
+    y += 4;
+    doc.text(`${pedido.quantidade_parcelas}x de ${formatBRL(pedido.valor_parcela)}`, right, y, { align: "right" });
+  }
 
   doc.save(`pedido-${formatPedidoShortId(pedido.id)}-pdv.pdf`);
 }
