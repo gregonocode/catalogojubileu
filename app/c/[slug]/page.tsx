@@ -512,7 +512,7 @@ export default function CatalogoPage() {
                   value={termoBusca}
                   onChange={(e) => setTermoBusca(e.target.value)}
                   placeholder="Pesquisar produto pelo nome ou descrição"
-                  className="h-12 w-full rounded-2xl border border-black/10 bg-white pl-11 pr-4 text-sm text-black outline-none transition placeholder:text-black/35 focus:border-black/20"
+                  className="h-12 w-full rounded-2xl border border-black/10 bg-white pl-11 pr-4 text-base text-black outline-none transition placeholder:text-black/35 focus:border-black/20"
                 />
               </div>
             </div>
