@@ -243,6 +243,13 @@ export default function PedidoDetalhePage() {
     return itens.reduce((acc, item) => acc + item.subtotal, 0);
   }, [itens]);
 
+  const descontoCalculado = useMemo(() => {
+    if (!pedido) return null;
+    const valor = Number(valorDesconto);
+    if (!Number.isFinite(valor) || valor < 0) return null;
+    return Math.round((tipoDesconto === "percentual" ? pedido.total * (valor / 100) : valor) * 100) / 100;
+  }, [pedido, tipoDesconto, valorDesconto]);
+
   const valorParcelaCalculado = useMemo(() => {
     if (!pedido) return null;
     const entrada = Number(valorEntrada);
@@ -250,15 +257,10 @@ export default function PedidoDetalhePage() {
     if (!Number.isFinite(entrada) || entrada < 0 || !Number.isInteger(parcelas) || parcelas < 1) {
       return null;
     }
-    return Math.round(((pedido.total - entrada) / parcelas) * 100) / 100;
-  }, [pedido, quantidadeParcelas, valorEntrada]);
-
-  const descontoCalculado = useMemo(() => {
-    if (!pedido) return null;
-    const valor = Number(valorDesconto);
-    if (!Number.isFinite(valor) || valor < 0) return null;
-    return Math.round((tipoDesconto === "percentual" ? pedido.total * (valor / 100) : valor) * 100) / 100;
-  }, [pedido, tipoDesconto, valorDesconto]);
+    const desconto = descontoAtivo ? descontoCalculado ?? 0 : 0;
+    const totalFinal = Math.max(0, pedido.total - desconto);
+    return Math.round(((totalFinal - entrada) / parcelas) * 100) / 100;
+  }, [pedido, quantidadeParcelas, valorEntrada, descontoAtivo, descontoCalculado]);
 
   async function loadPedido() {
   try {
@@ -446,8 +448,9 @@ export default function PedidoDetalhePage() {
     const entrada = Number(valorEntrada);
     const parcelas = Number(quantidadeParcelas);
 
-    if (parcelado && (!Number.isFinite(entrada) || entrada < 0 || entrada > pedido.total)) {
-      toast.error("Informe uma entrada entre R$ 0,00 e o total do pedido.");
+    const totalFinal = pedido.total - (descontoAtivo ? descontoCalculado ?? 0 : 0);
+    if (parcelado && (!Number.isFinite(entrada) || entrada < 0 || entrada > totalFinal)) {
+      toast.error("Informe uma entrada entre R$ 0,00 e o total com desconto.");
       return;
     }
 
@@ -498,11 +501,20 @@ export default function PedidoDetalhePage() {
       toast.error("Informe um desconto válido para o total do pedido.");
       return;
     }
+    const totalFinal = pedido.total - (descontoAtivo ? descontoCalculado ?? 0 : 0);
+    if (pedido.parcelado && (pedido.valor_entrada ?? 0) > totalFinal) {
+      toast.error("O desconto não pode deixar o total menor que o valor da entrada.");
+      return;
+    }
 
     try {
       setDescontoSaving(true);
       const calculado = descontoCalculado ?? 0;
       const totalComDesconto = Math.round((pedido.total - calculado) * 100) / 100;
+      const totalUsadoNoParcelamento = descontoAtivo ? totalComDesconto : pedido.total;
+      const valorParcelaAtualizado = pedido.parcelado && pedido.quantidade_parcelas
+        ? Math.round(((totalUsadoNoParcelamento - (pedido.valor_entrada ?? 0)) / pedido.quantidade_parcelas) * 100) / 100
+        : pedido.valor_parcela;
       const { error } = await supabaseClient
         .from("pedidos")
         .update({
@@ -511,6 +523,7 @@ export default function PedidoDetalhePage() {
           desconto_valor: descontoAtivo ? valor : null,
           desconto_calculado: descontoAtivo ? calculado : null,
           total_com_desconto: descontoAtivo ? totalComDesconto : null,
+          valor_parcela: valorParcelaAtualizado,
         })
         .eq("id", pedido.id);
       if (error) throw error;
@@ -522,6 +535,7 @@ export default function PedidoDetalhePage() {
         desconto_valor: descontoAtivo ? valor : null,
         desconto_calculado: descontoAtivo ? calculado : null,
         total_com_desconto: descontoAtivo ? totalComDesconto : null,
+        valor_parcela: valorParcelaAtualizado,
       } : current);
       toast.success("Desconto salvo.");
     } catch (err) {
@@ -815,7 +829,7 @@ export default function PedidoDetalhePage() {
                       <div className="grid gap-3 sm:grid-cols-2">
                         <label className="text-sm text-black/70">
                           Valor da entrada
-                          <input type="number" min="0" max={pedido.total} step="0.01" inputMode="decimal" value={valorEntrada} onChange={(event) => { setValorEntrada(event.target.value); setMostrarCalculoParcelas(false); }} placeholder="0,00" className="mt-1 h-11 w-full rounded-xl border border-black/10 px-3 outline-none focus:border-black/25" />
+                          <input type="number" min="0" max={pedido.total - (descontoAtivo ? descontoCalculado ?? 0 : 0)} step="0.01" inputMode="decimal" value={valorEntrada} onChange={(event) => { setValorEntrada(event.target.value); setMostrarCalculoParcelas(false); }} placeholder="0,00" className="mt-1 h-11 w-full rounded-xl border border-black/10 px-3 outline-none focus:border-black/25" />
                         </label>
                         <label className="text-sm text-black/70">
                           Número de parcelas

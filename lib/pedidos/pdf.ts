@@ -41,6 +41,13 @@ function formatBRL(v: number) {
   });
 }
 
+function valorParcelaFinal(pedido: PedidoPdfData, totalFinal: number) {
+  if (!pedido.quantidade_parcelas || pedido.quantidade_parcelas < 1) {
+    return pedido.valor_parcela ?? null;
+  }
+  return Math.round(((totalFinal - (pedido.valor_entrada ?? 0)) / pedido.quantidade_parcelas) * 100) / 100;
+}
+
 function formatPdfDate(iso: string) {
   const d = new Date(iso);
   const dd = String(d.getDate()).padStart(2, "0");
@@ -73,6 +80,7 @@ export function generatePedidoPdf(pedido: PedidoPdfData, format: PedidoPdfFormat
 
   const pageWidth = 210;
   const totalFinal = pedido.desconto_ativo && pedido.total_com_desconto !== null && pedido.total_com_desconto !== undefined ? pedido.total_com_desconto : pedido.total;
+  const parcelaFinal = valorParcelaFinal(pedido, totalFinal);
   const left = 14;
   const right = 196;
   let y = 18;
@@ -171,7 +179,7 @@ export function generatePedidoPdf(pedido: PedidoPdfData, format: PedidoPdfFormat
   doc.setFontSize(13);
   doc.text(`Total: ${formatBRL(totalFinal)}`, right, y, { align: "right" });
 
-  if (pedido.parcelado && pedido.quantidade_parcelas && pedido.valor_parcela !== null && pedido.valor_parcela !== undefined) {
+  if (pedido.parcelado && pedido.quantidade_parcelas && parcelaFinal !== null) {
     y += 10;
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
@@ -181,7 +189,7 @@ export function generatePedidoPdf(pedido: PedidoPdfData, format: PedidoPdfFormat
     doc.setFontSize(10);
     doc.text(`Entrada: ${formatBRL(pedido.valor_entrada ?? 0)}`, right, y, { align: "right" });
     y += 5;
-    doc.text(`${pedido.quantidade_parcelas}x de ${formatBRL(pedido.valor_parcela)}`, right, y, { align: "right" });
+    doc.text(`${pedido.quantidade_parcelas}x de ${formatBRL(parcelaFinal)}`, right, y, { align: "right" });
   }
 
   doc.save(`pedido-${formatPedidoShortId(pedido.id)}.pdf`);
@@ -193,12 +201,13 @@ function generatePedidoPdvPdf(pedido: PedidoPdfData) {
   const right = pageWidth - 4;
   const contentWidth = right - left;
   const totalFinal = pedido.desconto_ativo && pedido.total_com_desconto !== null && pedido.total_com_desconto !== undefined ? pedido.total_com_desconto : pedido.total;
+  const parcelaFinal = valorParcelaFinal(pedido, totalFinal);
   const measureDoc = new jsPDF({ orientation: "p", unit: "mm", format: [pageWidth, 200] });
   const endereco = measureDoc.splitTextToSize(`Endereço: ${pedido.cliente_endereco || "-"}`, contentWidth);
   const itemLines = pedido.itens.map((item) =>
     measureDoc.splitTextToSize(item.produto_nome || item.produto_id, contentWidth)
   );
-  const parcelamentoLines = pedido.parcelado && pedido.quantidade_parcelas && pedido.valor_parcela !== null && pedido.valor_parcela !== undefined ? 13 : 0;
+  const parcelamentoLines = pedido.parcelado && pedido.quantidade_parcelas && parcelaFinal !== null ? 13 : 0;
   const height = Math.max(
     110,
     51 + parcelamentoLines + endereco.length * 4 + itemLines.reduce((total, lines) => total + lines.length * 4 + 11, 0)
@@ -270,7 +279,7 @@ function generatePedidoPdvPdf(pedido: PedidoPdfData) {
     doc.text(`Desconto: -${formatBRL(pedido.desconto_calculado)}`, right, y, { align: "right" });
   }
 
-  if (pedido.parcelado && pedido.quantidade_parcelas && pedido.valor_parcela !== null && pedido.valor_parcela !== undefined) {
+  if (pedido.parcelado && pedido.quantidade_parcelas && parcelaFinal !== null) {
     y += 5;
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8.5);
@@ -280,7 +289,7 @@ function generatePedidoPdvPdf(pedido: PedidoPdfData) {
     doc.setFontSize(8);
     doc.text(`Entrada: ${formatBRL(pedido.valor_entrada ?? 0)}`, right, y, { align: "right" });
     y += 4;
-    doc.text(`${pedido.quantidade_parcelas}x de ${formatBRL(pedido.valor_parcela)}`, right, y, { align: "right" });
+    doc.text(`${pedido.quantidade_parcelas}x de ${formatBRL(parcelaFinal)}`, right, y, { align: "right" });
   }
 
   doc.save(`pedido-${formatPedidoShortId(pedido.id)}-pdv.pdf`);
