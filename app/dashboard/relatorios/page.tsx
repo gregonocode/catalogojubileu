@@ -24,6 +24,15 @@ type PedidoRow = {
   cliente_usuario_id: string | null;
   status: "rascunho" | "enviado_whatsapp" | "aprovado" | "cancelado";
   total: number | string;
+  parcelado: boolean | null;
+  valor_entrada: number | string | null;
+  quantidade_parcelas: number | null;
+  valor_parcela: number | string | null;
+  desconto_ativo: boolean | null;
+  desconto_tipo: "valor" | "percentual" | null;
+  desconto_valor: number | string | null;
+  desconto_calculado: number | string | null;
+  total_com_desconto: number | string | null;
   criado_em: string;
   atualizado_em: string;
   clientes?: ClienteEmbed | ClienteEmbed[] | null;
@@ -61,6 +70,15 @@ type Pedido = {
   total: number;
   criado_em: string;
   atualizado_em: string;
+  parcelado: boolean;
+  valor_entrada: number | null;
+  quantidade_parcelas: number | null;
+  valor_parcela: number | null;
+  desconto_ativo: boolean;
+  desconto_tipo: "valor" | "percentual" | null;
+  desconto_valor: number | null;
+  desconto_calculado: number | null;
+  total_com_desconto: number | null;
   cliente_nome: string | null;
   cliente_telefone: string | null;
   cliente_endereco: string | null;
@@ -299,6 +317,8 @@ export default function RelatoriosPage() {
         .select(
           `
           id, empresa_id, cliente_usuario_id, status, total, criado_em, atualizado_em,
+          parcelado, valor_entrada, quantidade_parcelas, valor_parcela,
+          desconto_ativo, desconto_tipo, desconto_valor, desconto_calculado, total_com_desconto,
           clientes:clientes!pedidos_cliente_usuario_id_fkey(
             nome,
             telefone,
@@ -373,6 +393,15 @@ export default function RelatoriosPage() {
           total: toNumber(r.total),
           criado_em: r.criado_em,
           atualizado_em: r.atualizado_em,
+          parcelado: r.parcelado ?? false,
+          valor_entrada: r.valor_entrada === null ? null : toNumber(r.valor_entrada),
+          quantidade_parcelas: r.quantidade_parcelas ?? null,
+          valor_parcela: r.valor_parcela === null ? null : toNumber(r.valor_parcela),
+          desconto_ativo: r.desconto_ativo ?? false,
+          desconto_tipo: r.desconto_tipo ?? null,
+          desconto_valor: r.desconto_valor === null ? null : toNumber(r.desconto_valor),
+          desconto_calculado: r.desconto_calculado === null ? null : toNumber(r.desconto_calculado),
+          total_com_desconto: r.total_com_desconto === null ? null : toNumber(r.total_com_desconto),
           cliente_nome: cliente.nome,
           cliente_telefone: cliente.telefone,
           cliente_endereco: montarEndereco(endereco),
