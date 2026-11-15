@@ -69,7 +69,7 @@ type Cliente = {
   telefone: string | null;
 };
 
-type PeriodoFiltro = "hoje" | "semana" | "mes" | "total";
+type PeriodoFiltro = "hoje" | "semana" | "mes" | "ano" | "personalizado";
 
 type PushPermissionState = NotificationPermission | "unsupported" | "checking";
 
@@ -83,11 +83,27 @@ function addDaysLocal(d: Date, days: number) {
   return copy;
 }
 
+function toDateInputValue(d: Date) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function dateFromInputValue(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (toDateInputValue(date) !== value) return null;
+  return startOfDayLocal(date);
+}
+
 function toIsoForSupabase(d: Date) {
   return d.toISOString();
 }
 
-function getPeriodoRange(periodo: PeriodoFiltro) {
+function getPeriodoRange(periodo: PeriodoFiltro, dataInicial: string, dataFinal: string) {
   const now = new Date();
   const todayStart = startOfDayLocal(now);
   const tomorrowStart = startOfDayLocal(addDaysLocal(now, 1));
@@ -97,13 +113,30 @@ function getPeriodoRange(periodo: PeriodoFiltro) {
   }
 
   if (periodo === "semana") {
-    const from = startOfDayLocal(addDaysLocal(now, -6));
-    return { from, to: tomorrowStart };
+    const daysSinceMonday = (now.getDay() + 6) % 7;
+    const from = startOfDayLocal(addDaysLocal(now, -daysSinceMonday));
+    return { from, to: addDaysLocal(from, 7) };
   }
 
   if (periodo === "mes") {
-    const from = startOfDayLocal(addDaysLocal(now, -29));
-    return { from, to: tomorrowStart };
+    return {
+      from: new Date(now.getFullYear(), now.getMonth(), 1),
+      to: new Date(now.getFullYear(), now.getMonth() + 1, 1),
+    };
+  }
+
+  if (periodo === "ano") {
+    return {
+      from: new Date(now.getFullYear(), 0, 1),
+      to: new Date(now.getFullYear() + 1, 0, 1),
+    };
+  }
+
+  if (periodo === "personalizado") {
+    const from = dateFromInputValue(dataInicial);
+    const lastDay = dateFromInputValue(dataFinal);
+    if (!from || !lastDay || from > lastDay) return null;
+    return { from, to: addDaysLocal(lastDay, 1) };
   }
 
   return { from: null as Date | null, to: null as Date | null };
@@ -156,7 +189,16 @@ export default function DashboardPage() {
   const [pedidosPendentes, setPedidosPendentes] = useState(0);
   const [clientesUnicos, setClientesUnicos] = useState(0);
 
-  const [periodo, setPeriodo] = useState<PeriodoFiltro>("semana");
+  const [periodo, setPeriodo] = useState<PeriodoFiltro>("mes");
+  const [datasPersonalizadas, setDatasPersonalizadas] = useState(() => {
+    const hoje = new Date();
+    return {
+      inicial: toDateInputValue(new Date(hoje.getFullYear(), hoje.getMonth(), 1)),
+      final: toDateInputValue(hoje),
+    };
+  });
+  const [dataInicialRascunho, setDataInicialRascunho] = useState(datasPersonalizadas.inicial);
+  const [dataFinalRascunho, setDataFinalRascunho] = useState(datasPersonalizadas.final);
 
   const [vendasPeriodo, setVendasPeriodo] = useState<Array<{ status: string; total: number }>>(
     []
@@ -173,7 +215,8 @@ export default function DashboardPage() {
     if (periodo === "hoje") return "Hoje";
     if (periodo === "semana") return "Esta semana";
     if (periodo === "mes") return "Este mês";
-    return "Todo período";
+    if (periodo === "ano") return "Este ano";
+    return "Período personalizado";
   }, [periodo]);
 
   const resumoStatus = useMemo<StatusResumo>(() => {
@@ -379,7 +422,15 @@ toast.success("Notificações ativadas com sucesso.");
 
         const empresaId = emp.id;
 
-        const range = getPeriodoRange(periodo);
+        const range = getPeriodoRange(
+          periodo,
+          datasPersonalizadas.inicial,
+          datasPersonalizadas.final
+        );
+        if (!range) {
+          if (mounted) setVendasPeriodo([]);
+          return;
+        }
         const fromIso = range.from ? toIsoForSupabase(range.from) : null;
         const toIso = range.to ? toIsoForSupabase(range.to) : null;
 
@@ -490,7 +541,7 @@ toast.success("Notificações ativadas com sucesso.");
     return () => {
       mounted = false;
     };
-  }, [periodo]);
+  }, [periodo, datasPersonalizadas]);
 
   if (!loading && !empresa) {
     return (
@@ -570,13 +621,61 @@ toast.success("Notificações ativadas com sucesso.");
                 <option value="hoje">Hoje</option>
                 <option value="semana">Esta semana</option>
                 <option value="mes">Este mês</option>
-                <option value="total">Todo período</option>
+                <option value="ano">Este ano</option>
+                <option value="personalizado">Personalizado</option>
               </select>
               <ChevronDown
                 size={16}
                 className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-black/50"
               />
             </div>
+
+            {periodo === "personalizado" ? (
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="grid gap-1 text-xs text-black/55">
+                  De
+                  <input
+                    type="date"
+                    value={dataInicialRascunho}
+                    onChange={(e) => setDataInicialRascunho(e.target.value)}
+                    aria-label="Data inicial do faturamento"
+                    className="h-[50px] rounded-2xl border border-black/10 bg-white px-3 text-sm text-black/80 outline-none"
+                  />
+                </label>
+                <label className="grid gap-1 text-xs text-black/55">
+                  Até
+                  <input
+                    type="date"
+                    value={dataFinalRascunho}
+                    onChange={(e) => setDataFinalRascunho(e.target.value)}
+                    aria-label="Data final do faturamento"
+                    className="h-[50px] rounded-2xl border border-black/10 bg-white px-3 text-sm text-black/80 outline-none"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDatasPersonalizadas({
+                      inicial: dataInicialRascunho,
+                      final: dataFinalRascunho,
+                    })
+                  }
+                  disabled={
+                    !dateFromInputValue(dataInicialRascunho) ||
+                    !dateFromInputValue(dataFinalRascunho) ||
+                    dataInicialRascunho > dataFinalRascunho
+                  }
+                  className="h-[50px] rounded-2xl border border-black/10 bg-black px-4 text-sm font-medium text-white transition hover:bg-black/80 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Aplicar
+                </button>
+                {dataInicialRascunho &&
+                dataFinalRascunho &&
+                dataInicialRascunho > dataFinalRascunho ? (
+                  <span className="pb-3 text-xs text-red-600">A data inicial deve vir antes da final.</span>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </div>
 
