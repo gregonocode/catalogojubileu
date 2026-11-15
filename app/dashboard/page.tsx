@@ -49,8 +49,6 @@ function formatBRL(value: number) {
 type Empresa = {
   id: string;
   nome: string;
-  whatsapp: string;
-  slug: string;
 };
 
 type PedidoStatus = "rascunho" | "enviado_whatsapp" | "aprovado" | "cancelado";
@@ -406,7 +404,7 @@ toast.success("Notificações ativadas com sucesso.");
 
         const { data: emp, error: empErr } = await supabaseClient
           .from("empresas")
-          .select("id, nome, whatsapp, slug")
+          .select("id, nome")
           .eq("dono_usuario_id", userId)
           .maybeSingle();
 
@@ -564,9 +562,6 @@ toast.success("Notificações ativadas com sucesso.");
           <div>
             <div className="text-sm text-black/60">Empresa</div>
             <div className="text-lg font-semibold text-black">{empresa ? empresa.nome : "—"}</div>
-            <div className="mt-1 text-xs text-black/55">
-              WhatsApp: {empresa?.whatsapp ?? "—"} • Slug: {empresa?.slug ?? "—"}
-            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
