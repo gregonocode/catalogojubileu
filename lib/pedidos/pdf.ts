@@ -48,6 +48,57 @@ function valorParcelaFinal(pedido: PedidoPdfData, totalFinal: number) {
   return Math.round(((totalFinal - (pedido.valor_entrada ?? 0)) / pedido.quantidade_parcelas) * 100) / 100;
 }
 
+type PedidoPdfPagamento = {
+  parcela: string;
+  vencimento: string;
+  valor: number;
+};
+
+function formatarVencimento(date: Date) {
+  const weekday = date.toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", "");
+  const day = date.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+  return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}, ${day}`;
+}
+
+function gerarPagamentos(pedido: PedidoPdfData, totalFinal: number): PedidoPdfPagamento[] {
+  const createdAt = new Date(pedido.criado_em);
+  const saleDate = Number.isNaN(createdAt.getTime()) ? new Date() : createdAt;
+  const baseDate = new Date(saleDate.getFullYear(), saleDate.getMonth(), saleDate.getDate());
+  const quantity = pedido.quantidade_parcelas ?? 0;
+
+  if (!pedido.parcelado || quantity < 1) {
+    return [{ parcela: "À vista", vencimento: formatarVencimento(baseDate), valor: totalFinal }];
+  }
+
+  const payments: PedidoPdfPagamento[] = [];
+  const entrance = pedido.valor_entrada ?? 0;
+  if (entrance > 0) {
+    payments.push({ parcela: "Entrada", vencimento: formatarVencimento(baseDate), valor: entrance });
+  }
+
+  const amountPerInstallment = valorParcelaFinal(pedido, totalFinal) ?? 0;
+  const totalFinanced = Math.max(0, totalFinal - entrance);
+  for (let index = 0; index < quantity; index += 1) {
+    const dueDate = new Date(baseDate);
+    dueDate.setDate(dueDate.getDate() + (index + 1) * 7);
+    const amount = index === quantity - 1
+      ? Math.round((totalFinanced - amountPerInstallment * (quantity - 1)) * 100) / 100
+      : amountPerInstallment;
+
+    payments.push({
+      parcela: `${index + 1}/${quantity}`,
+      vencimento: formatarVencimento(dueDate),
+      valor: amount,
+    });
+  }
+
+  return payments;
+}
+
 function formatPdfDate(iso: string) {
   const d = new Date(iso);
   const dd = String(d.getDate()).padStart(2, "0");
@@ -62,6 +113,77 @@ function drawLine(doc: jsPDF, y: number) {
   doc.setDrawColor(20, 20, 20);
   doc.setLineWidth(0.6);
   doc.line(14, y, 196, y);
+}
+
+function drawPaymentTable(
+  doc: jsPDF,
+  payments: PedidoPdfPagamento[],
+  title: string,
+  top: number,
+  rowHeight = 8.5
+) {
+  const left = 14;
+  const right = 196;
+  const tableWidth = right - left;
+  const columns = [left, left + 27, left + 91, left + 127, right];
+  const headerHeight = 8;
+  let y = top;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9.5);
+  doc.setTextColor(25, 35, 45);
+  doc.text(title, left, y + 5.5);
+  y += 8;
+
+  doc.setFillColor(49, 66, 82);
+  doc.setDrawColor(90, 105, 118);
+  doc.setLineWidth(0.25);
+  doc.rect(left, y, tableWidth, headerHeight, "FD");
+  for (const column of columns.slice(1, -1)) doc.line(column, y, column, y + headerHeight);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(255, 255, 255);
+  const headers = ["Parcela", "Vencimento", "Valor", "Pago em / Assinatura"];
+  headers.forEach((header, index) => {
+    doc.text(header, (columns[index] + columns[index + 1]) / 2, y + 5.3, { align: "center" });
+  });
+  y += headerHeight;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(35, 42, 48);
+  doc.setDrawColor(145, 153, 160);
+  payments.forEach((payment) => {
+    doc.rect(left, y, tableWidth, rowHeight, "S");
+    for (const column of columns.slice(1, -1)) doc.line(column, y, column, y + rowHeight);
+    const baseline = y + rowHeight / 2 + 1.1;
+    doc.text(payment.parcela, (columns[0] + columns[1]) / 2, baseline, { align: "center" });
+    doc.text(payment.vencimento, (columns[1] + columns[2]) / 2, baseline, { align: "center" });
+    doc.text(formatBRL(payment.valor), (columns[2] + columns[3]) / 2, baseline, { align: "center" });
+    y += rowHeight;
+  });
+
+  return y;
+}
+
+function drawSignatureFields(doc: jsPDF, lineY: number) {
+  const left = 14;
+  const right = 196;
+  const signatureWidth = 72;
+  const leftStart = left + 5;
+  const rightStart = right - 5 - signatureWidth;
+
+  doc.setDrawColor(70, 70, 70);
+  doc.setLineWidth(0.35);
+  doc.line(leftStart, lineY, leftStart + signatureWidth, lineY);
+  doc.line(rightStart, lineY, rightStart + signatureWidth, lineY);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(55, 55, 55);
+  doc.text("Assinatura do cliente", leftStart + signatureWidth / 2, lineY + 6, { align: "center" });
+  doc.text("Responsável pela venda", rightStart + signatureWidth / 2, lineY + 6, { align: "center" });
 }
 
 export type PedidoPdfFormat = "a4" | "pdv";
@@ -80,7 +202,16 @@ export function generatePedidoPdf(pedido: PedidoPdfData, format: PedidoPdfFormat
 
   const pageWidth = 210;
   const totalFinal = pedido.desconto_ativo && pedido.total_com_desconto !== null && pedido.total_com_desconto !== undefined ? pedido.total_com_desconto : pedido.total;
-  const parcelaFinal = valorParcelaFinal(pedido, totalFinal);
+  const pagamentos = gerarPagamentos(pedido, totalFinal);
+  const rowHeight = 8.5;
+  const footerHeight = 8 + 8 + pagamentos.length * rowHeight + 22 + 6 + 16;
+  const footerTop = 297 - footerHeight;
+  const temDesconto = pedido.desconto_ativo && pedido.desconto_calculado !== null && pedido.desconto_calculado !== undefined;
+  const alturaTotais = 10 + 14 + 8 + (temDesconto ? 8 : 0) + 10;
+  const podeCompartilharPagina = footerTop > 20 + alturaTotais + 8;
+  const tituloPagamento = pedido.parcelado && pedido.quantidade_parcelas
+    ? `Forma de pagamento: ${pedido.quantidade_parcelas} parcela${pedido.quantidade_parcelas === 1 ? "" : "s"} semanal${pedido.quantidade_parcelas === 1 ? "" : "is"}, vencimento a cada 7 dias`
+    : "Forma de pagamento: à vista";
   const left = 14;
   const right = 196;
   let y = 18;
@@ -130,6 +261,12 @@ export function generatePedidoPdf(pedido: PedidoPdfData, format: PedidoPdfFormat
   for (const item of pedido.itens) {
     const nome = item.produto_nome || item.produto_id;
     const linhas = doc.splitTextToSize(nome, 105);
+    const alturaItem = Math.max(20, linhas.length * 5 + 12);
+
+    if (y + alturaItem > 250) {
+      doc.addPage();
+      y = 20;
+    }
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
@@ -144,16 +281,18 @@ export function generatePedidoPdf(pedido: PedidoPdfData, format: PedidoPdfFormat
     doc.setFontSize(11);
     doc.text(formatBRL(item.subtotal), right, y, { align: "right" });
 
-    y += Math.max(20, linhas.length * 5 + 12);
+    y += alturaItem;
 
     doc.setDrawColor(220, 220, 220);
     doc.setLineWidth(0.3);
     doc.line(left, y - 4, right, y - 4);
 
-    if (y > 250) {
-      doc.addPage();
-      y = 20;
-    }
+  }
+
+  const limiteTotais = podeCompartilharPagina ? footerTop - 8 : 282;
+  if (y + alturaTotais > limiteTotais) {
+    doc.addPage();
+    y = 20;
   }
 
   y += 10;
@@ -167,7 +306,7 @@ export function generatePedidoPdf(pedido: PedidoPdfData, format: PedidoPdfFormat
   y += 8;
   doc.text(`Dinheiro: ${formatBRL(totalFinal)}`, right, y, { align: "right" });
 
-  if (pedido.desconto_ativo && pedido.desconto_calculado !== null && pedido.desconto_calculado !== undefined) {
+  if (temDesconto) {
     y += 8;
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
@@ -179,17 +318,24 @@ export function generatePedidoPdf(pedido: PedidoPdfData, format: PedidoPdfFormat
   doc.setFontSize(13);
   doc.text(`Total: ${formatBRL(totalFinal)}`, right, y, { align: "right" });
 
-  if (pedido.parcelado && pedido.quantidade_parcelas && parcelaFinal !== null) {
-    y += 10;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.text("Pagamento parcelado", right, y, { align: "right" });
-    y += 6;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.text(`Entrada: ${formatBRL(pedido.valor_entrada ?? 0)}`, right, y, { align: "right" });
-    y += 5;
-    doc.text(`${pedido.quantidade_parcelas}x de ${formatBRL(parcelaFinal)}`, right, y, { align: "right" });
+  if (podeCompartilharPagina) {
+    const tableBottom = drawPaymentTable(doc, pagamentos, tituloPagamento, footerTop, rowHeight);
+    drawSignatureFields(doc, tableBottom + 22);
+  } else {
+    const rowsPerPage = 26;
+    for (let offset = 0; offset < pagamentos.length; offset += rowsPerPage) {
+      doc.addPage();
+      const pagePayments = pagamentos.slice(offset, offset + rowsPerPage);
+      const isLastPaymentPage = offset + pagePayments.length >= pagamentos.length;
+      drawPaymentTable(
+        doc,
+        pagePayments,
+        offset === 0 ? tituloPagamento : `${tituloPagamento} (continuação)`,
+        20,
+        rowHeight
+      );
+      if (isLastPaymentPage) drawSignatureFields(doc, 270);
+    }
   }
 
   doc.save(`pedido-${formatPedidoShortId(pedido.id)}.pdf`);
