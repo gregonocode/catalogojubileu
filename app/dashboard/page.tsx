@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   TrendingUp,
   Users,
   ReceiptText,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
   Bell,
   BellRing,
 } from "lucide-react";
@@ -86,6 +89,13 @@ function toDateInputValue(d: Date) {
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function formatDateBR(value: string) {
+  const date = dateFromInputValue(value);
+  return date
+    ? date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
+    : "";
 }
 
 function dateFromInputValue(value: string) {
@@ -197,6 +207,11 @@ export default function DashboardPage() {
   });
   const [dataInicialRascunho, setDataInicialRascunho] = useState(datasPersonalizadas.inicial);
   const [dataFinalRascunho, setDataFinalRascunho] = useState(datasPersonalizadas.final);
+  const [calendarioAberto, setCalendarioAberto] = useState(false);
+  const [mesCalendario, setMesCalendario] = useState(() =>
+    dateFromInputValue(datasPersonalizadas.inicial) ?? new Date()
+  );
+  const calendarioRef = useRef<HTMLDivElement>(null);
 
   const [vendasPeriodo, setVendasPeriodo] = useState<Array<{ status: string; total: number }>>(
     []
@@ -216,6 +231,51 @@ export default function DashboardPage() {
     if (periodo === "ano") return "Este ano";
     return "Período personalizado";
   }, [periodo]);
+
+  useEffect(() => {
+    if (!calendarioAberto) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!calendarioRef.current?.contains(event.target as Node)) {
+        setCalendarioAberto(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setCalendarioAberto(false);
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [calendarioAberto]);
+
+  const diasCalendario = useMemo(() => {
+    const primeiroDia = new Date(mesCalendario.getFullYear(), mesCalendario.getMonth(), 1);
+    const deslocamento = (primeiroDia.getDay() + 6) % 7;
+    const inicioGrade = addDaysLocal(primeiroDia, -deslocamento);
+    return Array.from({ length: 42 }, (_, index) => addDaysLocal(inicioGrade, index));
+  }, [mesCalendario]);
+
+  function selecionarDiaCalendario(date: Date) {
+    const selecionado = toDateInputValue(date);
+    if (!dataInicialRascunho || dataFinalRascunho) {
+      setDataInicialRascunho(selecionado);
+      setDataFinalRascunho("");
+      return;
+    }
+
+    if (selecionado < dataInicialRascunho) {
+      setDataFinalRascunho(dataInicialRascunho);
+      setDataInicialRascunho(selecionado);
+      return;
+    }
+
+    setDataFinalRascunho(selecionado);
+  }
 
   const resumoStatus = useMemo<StatusResumo>(() => {
     const sum = { aprovado: 0, pendente: 0, cancelado: 0, total: 0 };
@@ -609,7 +669,20 @@ toast.success("Notificações ativadas com sucesso.");
             <div className="relative">
               <select
                 value={periodo}
-                onChange={(e) => setPeriodo(e.target.value as PeriodoFiltro)}
+                onChange={(e) => {
+                  const novoPeriodo = e.target.value as PeriodoFiltro;
+                  setPeriodo(novoPeriodo);
+                  if (novoPeriodo === "personalizado") {
+                    setDataInicialRascunho(datasPersonalizadas.inicial);
+                    setDataFinalRascunho(datasPersonalizadas.final);
+                    setMesCalendario(
+                      dateFromInputValue(datasPersonalizadas.inicial) ?? new Date()
+                    );
+                    setCalendarioAberto(true);
+                  } else {
+                    setCalendarioAberto(false);
+                  }
+                }}
                 className="h-[50px] appearance-none rounded-2xl border border-black/10 bg-white pl-4 pr-10 text-sm font-medium text-black/80 outline-none hover:bg-black/5"
                 aria-label="Filtrar período"
               >
@@ -626,48 +699,132 @@ toast.success("Notificações ativadas com sucesso.");
             </div>
 
             {periodo === "personalizado" ? (
-              <div className="flex flex-wrap items-end gap-2">
-                <label className="grid gap-1 text-xs text-black/55">
-                  De
-                  <input
-                    type="date"
-                    value={dataInicialRascunho}
-                    onChange={(e) => setDataInicialRascunho(e.target.value)}
-                    aria-label="Data inicial do faturamento"
-                    className="h-[50px] rounded-2xl border border-black/10 bg-white px-3 text-sm text-black/80 outline-none"
-                  />
-                </label>
-                <label className="grid gap-1 text-xs text-black/55">
-                  Até
-                  <input
-                    type="date"
-                    value={dataFinalRascunho}
-                    onChange={(e) => setDataFinalRascunho(e.target.value)}
-                    aria-label="Data final do faturamento"
-                    className="h-[50px] rounded-2xl border border-black/10 bg-white px-3 text-sm text-black/80 outline-none"
-                  />
-                </label>
+              <div ref={calendarioRef} className="relative">
                 <button
                   type="button"
-                  onClick={() =>
-                    setDatasPersonalizadas({
-                      inicial: dataInicialRascunho,
-                      final: dataFinalRascunho,
-                    })
-                  }
-                  disabled={
-                    !dateFromInputValue(dataInicialRascunho) ||
-                    !dateFromInputValue(dataFinalRascunho) ||
-                    dataInicialRascunho > dataFinalRascunho
-                  }
-                  className="h-[50px] rounded-2xl border border-black/10 bg-black px-4 text-sm font-medium text-white transition hover:bg-black/80 disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => setCalendarioAberto((aberto) => !aberto)}
+                  aria-expanded={calendarioAberto}
+                  aria-haspopup="dialog"
+                  className="inline-flex h-[50px] items-center gap-2 rounded-2xl border border-black/10 bg-white px-4 text-sm font-medium text-black/80 transition hover:bg-black/5"
                 >
-                  Aplicar
+                  <CalendarDays size={16} className="text-black/55" />
+                  {datasPersonalizadas.inicial && datasPersonalizadas.final
+                    ? `${formatDateBR(datasPersonalizadas.inicial)} – ${formatDateBR(datasPersonalizadas.final)}`
+                    : "Selecionar período"}
+                  <ChevronDown size={15} className="text-black/50" />
                 </button>
-                {dataInicialRascunho &&
-                dataFinalRascunho &&
-                dataInicialRascunho > dataFinalRascunho ? (
-                  <span className="pb-3 text-xs text-red-600">A data inicial deve vir antes da final.</span>
+
+                {calendarioAberto ? (
+                  <div
+                    role="dialog"
+                    aria-label="Selecionar período personalizado"
+                    className="absolute right-0 top-[calc(100%+8px)] z-50 w-[320px] max-w-[calc(100vw-2rem)] rounded-2xl border border-black/10 bg-white p-4 shadow-xl"
+                  >
+                    <div className="text-sm font-semibold text-black">Período personalizado</div>
+                    <div className="mt-1 text-xs text-black/55">
+                      Selecione a data inicial e a data final.
+                    </div>
+
+                    <div className="mt-4 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setMesCalendario(
+                            (mes) => new Date(mes.getFullYear(), mes.getMonth() - 1, 1)
+                          )
+                        }
+                        aria-label="Mês anterior"
+                        className="grid h-8 w-8 place-items-center rounded-lg text-black/65 hover:bg-black/5"
+                      >
+                        <ChevronLeft size={17} />
+                      </button>
+                      <div className="text-sm font-medium capitalize text-black">
+                        {mesCalendario.toLocaleDateString("pt-BR", {
+                          month: "long",
+                          year: "numeric",
+                        })}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setMesCalendario(
+                            (mes) => new Date(mes.getFullYear(), mes.getMonth() + 1, 1)
+                          )
+                        }
+                        aria-label="Próximo mês"
+                        className="grid h-8 w-8 place-items-center rounded-lg text-black/65 hover:bg-black/5"
+                      >
+                        <ChevronRight size={17} />
+                      </button>
+                    </div>
+
+                    <div className="mt-2 grid grid-cols-7 text-center text-[11px] font-medium text-black/45">
+                      {["seg", "ter", "qua", "qui", "sex", "sáb", "dom"].map((dia) => (
+                        <div key={dia} className="py-2">{dia}</div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-7 gap-y-1 text-center">
+                      {diasCalendario.map((dia) => {
+                        const valor = toDateInputValue(dia);
+                        const pertenceMes = dia.getMonth() === mesCalendario.getMonth();
+                        const inicio = valor === dataInicialRascunho;
+                        const fim = valor === dataFinalRascunho;
+                        const dentroDoPeriodo =
+                          Boolean(dataInicialRascunho && dataFinalRascunho) &&
+                          valor > dataInicialRascunho &&
+                          valor < dataFinalRascunho;
+
+                        return (
+                          <button
+                            key={valor}
+                            type="button"
+                            onClick={() => selecionarDiaCalendario(dia)}
+                            aria-label={dia.toLocaleDateString("pt-BR", {
+                              day: "numeric",
+                              month: "long",
+                              year: "numeric",
+                            })}
+                            aria-pressed={inicio || fim}
+                            className={cn(
+                              "mx-auto grid h-9 w-9 place-items-center rounded-full text-sm transition",
+                              pertenceMes ? "text-black/80" : "text-black/30",
+                              dentroDoPeriodo && "rounded-none bg-black/5",
+                              (inicio || fim) && "bg-black text-white hover:bg-black/80",
+                              !(inicio || fim) && "hover:bg-black/5"
+                            )}
+                          >
+                            {dia.getDate()}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-3 flex min-h-10 items-center justify-between gap-2 border-t border-black/10 pt-3">
+                      <div className="text-xs text-black/60">
+                        {dataInicialRascunho ? formatDateBR(dataInicialRascunho) : "Início"}
+                        <span className="px-1">–</span>
+                        {dataFinalRascunho ? formatDateBR(dataFinalRascunho) : "Fim"}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDatasPersonalizadas({
+                            inicial: dataInicialRascunho,
+                            final: dataFinalRascunho,
+                          });
+                          setCalendarioAberto(false);
+                        }}
+                        disabled={
+                          !dateFromInputValue(dataInicialRascunho) ||
+                          !dateFromInputValue(dataFinalRascunho) ||
+                          dataInicialRascunho > dataFinalRascunho
+                        }
+                        className="h-9 rounded-xl bg-black px-3 text-xs font-medium text-white transition hover:bg-black/80 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Aplicar
+                      </button>
+                    </div>
+                  </div>
                 ) : null}
               </div>
             ) : null}
