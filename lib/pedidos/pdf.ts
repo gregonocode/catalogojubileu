@@ -310,7 +310,7 @@ export function generatePedidoPdf(pedido: PedidoPdfData, format: PedidoPdfFormat
     y += 8;
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
-    doc.text(`Desconto: -${formatBRL(pedido.desconto_calculado)}`, right, y, { align: "right" });
+    doc.text(`Desconto: -${formatBRL(pedido.desconto_calculado ?? 0)}`, right, y, { align: "right" });
   }
 
   y += 10;
