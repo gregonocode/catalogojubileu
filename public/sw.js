@@ -1,4 +1,4 @@
-const CACHE_NAME = "catalogo-v3";
+const CACHE_NAME = "catalogo-v4";
 
 // não cacheie o manifest aqui
 const ASSETS = ["/"];
@@ -37,21 +37,38 @@ self.addEventListener("fetch", (event) => {
   // nunca interceptar auth / APIs sensíveis
   if (url.pathname.startsWith("/auth")) return;
   if (url.pathname.startsWith("/api")) return;
+  if (url.origin !== self.location.origin) return;
 
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-
-      return fetch(request)
-        .then((res) => {
-          if (res.ok && url.origin === self.location.origin) {
-            const copy = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+    fetch(request)
+      .then(async (response) => {
+        if (response.ok) {
+          try {
+            const cache = await caches.open(CACHE_NAME);
+            await cache.put(request, response.clone());
+          } catch {
+            // A cache failure must not block the network response.
           }
-          return res;
-        })
-        .catch(() => cached || Response.error());
-    })
+        }
+        return response;
+      })
+      .catch(async () => {
+        let cached;
+        try {
+          cached = await caches.match(request);
+        } catch {
+          cached = undefined;
+        }
+        if (cached) return cached;
+        if (request.mode === "navigate") {
+          try {
+            return (await caches.match("/")) ?? Response.error();
+          } catch {
+            return Response.error();
+          }
+        }
+        return Response.error();
+      })
   );
 });
 

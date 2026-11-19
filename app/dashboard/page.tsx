@@ -342,7 +342,10 @@ export default function DashboardPage() {
     try {
       setPushLoading(true);
 
-      const registration = await navigator.serviceWorker.register("/sw.js");
+      const registration = await navigator.serviceWorker.register("/sw.js", {
+        scope: "/",
+        updateViaCache: "none",
+      });
       await navigator.serviceWorker.ready;
 
       let permission = Notification.permission;
@@ -429,7 +432,10 @@ toast.success("Notificações ativadas com sucesso.");
       }
 
       try {
-        await navigator.serviceWorker.register("/sw.js");
+        await navigator.serviceWorker.register("/sw.js", {
+          scope: "/",
+          updateViaCache: "none",
+        });
         if (!mounted) return;
 
         setPushPermission(Notification.permission);
